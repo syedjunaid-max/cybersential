@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Red Team Automation</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+<h2>Red Team Automation Platform</h2>
+
+<form action="/scan" method="POST">
+
+Target Domain:
+<input type="text" name="target" required>
+
+<br><br>
+
+Test Password:
+<input type="text" name="password">
+
+<br><br>
+
+<button type="submit">Start Scan</button>
+
+</form>
+
+</body>
+</html>

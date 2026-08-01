@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<h2>Scan Results</h2>
+
+<h3>Recon</h3>
+
+<ul>
+{% for key,value in recon.items() %}
+<li>{{key}} : {{value}}</li>
+{% endfor %}
+</ul>
+
+<h3>Open Ports</h3>
+
+<ul>
+{% for p in ports %}
+<li>Port {{p.port}} : {{p.state}}</li>
+{% endfor %}
+</ul>
+
+<h3>Security Headers</h3>
+
+<ul>
+{% for key,value in headers.items() %}
+<li>{{key}} : {{value}}</li>
+{% endfor %}
+</ul>
+
+<h3>Password Strength</h3>
+
+<p>{{password_strength}}</p>
+
+<h3>Report Generated</h3>
+
+<p>{{report}}</p>
+
+</body>
+
+</html>
