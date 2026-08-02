@@ -12,7 +12,10 @@
     <header class="site-header">
         <div class="container header-inner">
             <a class="brand" href="{{ url_for('home') }}">Cybersential</a>
-            <span class="header-tag">Educational security assessment</span>
+            <nav class="header-nav" aria-label="Primary navigation">
+                <a aria-current="page" href="{{ url_for('home') }}">Assessment tools</a>
+                <a href="{{ url_for('dpi') }}">Deep Packet Inspection</a>
+            </nav>
         </div>
     </header>
 
@@ -106,9 +109,23 @@
             </section>
         </div>
 
+        <section class="card feature-callout" aria-labelledby="dpi-feature-heading">
+            <div class="card-heading">
+                <span class="step-number">06</span>
+                <div>
+                    <h2 id="dpi-feature-heading">Deep Packet Inspection</h2>
+                    <p>Run a passive, bounded, metadata-only traffic observation on your own local interface or an explicitly authorized lab network.</p>
+                </div>
+            </div>
+            <div>
+                <p class="status-text">No PCAP files, raw payloads, credentials, cookies, tokens, or decrypted content are collected.</p>
+                <a class="button button-secondary" href="{{ url_for('dpi') }}">Open traffic analyzer</a>
+            </div>
+        </section>
+
         <section class="scope-note">
             <h2>Assessment boundaries</h2>
-            <p>This college project performs passive WHOIS/DNS collection, a normal TCP connect scan, and response-header inspection. It does not exploit systems, attempt credentials, evade controls, or run destructive commands.</p>
+            <p>This college project performs passive WHOIS/DNS collection, a normal TCP connect scan, response-header inspection, password rule analysis, and optional bounded packet-metadata observation. It does not exploit systems, attempt credentials, inject traffic, evade controls, decrypt traffic, or run destructive commands.</p>
         </section>
     </main>
 

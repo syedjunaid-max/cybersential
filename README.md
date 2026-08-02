@@ -13,8 +13,33 @@ services/
 |-- port_scanner.py
 |-- header_analyzer.py
 |-- password_analyzer.py
+|-- packet_inspector.py
+|-- traffic_analyzer.py
 `-- report_generator.py
 ```
+
+### Deep Packet Inspection and Network Traffic Analysis
+
+The optional `/dpi` workflow performs a passive, metadata-only observation on a
+server-selected local interface. Captures are explicitly authorized, limited to
+5-30 seconds (15 seconds by default) and 10-500 packets (200 by default), and
+stop as soon as either limit is reached. PCAP files and raw payloads are never
+stored. The result contains only timestamps, IP addresses, protocol and port
+metadata, packet lengths, TCP flags, ICMP types, DNS query names, and an
+estimate of encrypted traffic. Rule-based findings are educational heuristics
+and are never confirmation of an attack.
+
+On Windows, install [Npcap](https://npcap.com/) separately before using live
+capture; administrator or equivalent capture permission may be required. The
+application does not install drivers automatically. Capture only traffic on a
+machine/network you own or for which you have explicit authorization; do not
+capture shared, college, workplace, public Wi-Fi, or third-party traffic without
+permission. HTTPS and other encrypted payloads remain encrypted.
+
+Open `http://127.0.0.1:5000/dpi`, choose an interface, duration, and packet
+limit, confirm the authorization checkbox, and start one bounded capture. A
+UUID result page and metadata-only PDF are kept in a process-local store of at
+most ten assessments.
 
 The original `modules/` files remain in the repository for history but are no longer imported by `app.py`.
 
