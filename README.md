@@ -1,6 +1,44 @@
 # Red-team-automation-platform
 A Flask-based Red Team Automation Platform that performs reconnaissance, port scanning using Nmap, web security header analysis, password strength evaluation, and automated PDF vulnerability report generation.
 
+## Current Cybersential implementation
+
+Cybersential is an educational Flask application for explicitly authorized assessments. The current workflow accepts one HTTP(S) URL, domain, or IP; keeps a host-only value for DNS/WHOIS and Nmap; and preserves the complete normalized URL, including explicit ports and safe paths, for HTTP security-header analysis. It scans TCP ports 1-1024 with a normal Nmap connect scan and generates a UUID-named A4 PDF report. Password analysis is a separate in-memory workflow; entered passwords are never saved, echoed, logged by the application, or included in reports.
+
+The active service layer is in `services/`:
+
+```text
+services/
+|-- reconnaissance.py
+|-- port_scanner.py
+|-- header_analyzer.py
+|-- password_analyzer.py
+`-- report_generator.py
+```
+
+The original `modules/` files remain in the repository for history but are no longer imported by `app.py`.
+
+### Setup and run
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python app.py
+```
+
+Install the Nmap executable separately from <https://nmap.org/download.html> and ensure `nmap --version` works in a new terminal. The `python-nmap` package is only the Python adapter; the application shows a friendly setup message when the executable is unavailable.
+
+### Verification
+
+```powershell
+python -m compileall -q app.py services tests
+python -m unittest discover -s tests -v
+python -m flask --app app routes
+```
+
+Use only localhost, a lab machine, or another target covered by explicit permission. Generated reports are stored in the git-ignored `reports/` directory and can be downloaded only through their UUID-based route.
+
 # 🔴 Red Team Automation Platform
 
 ## 📌 Project Overview
@@ -207,4 +245,3 @@ Information Science And Enineering Student
 * Prompt injection detection
 
 ---
-

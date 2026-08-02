@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }} | Cybersential</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="container header-inner"><a class="brand" href="{{ url_for('home') }}">Cybersential</a></div>
+    </header>
+    <main class="container centered-page">
+        <section class="card error-card">
+            <p class="eyebrow">REQUEST NOT COMPLETED</p>
+            <h1>{{ title }}</h1>
+            <p>{{ message }}</p>
+            <a class="button button-primary" href="{{ url_for('home') }}">Return home</a>
+        </section>
+    </main>
+</body>
+</html>

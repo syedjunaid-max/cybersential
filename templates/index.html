@@ -1,29 +1,119 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-<title>Red Team Automation</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Cybersential authorized security assessment platform">
+    <title>Cybersential | Authorized Security Assessment</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </head>
-
 <body>
+    <header class="site-header">
+        <div class="container header-inner">
+            <a class="brand" href="{{ url_for('home') }}">Cybersential</a>
+            <span class="header-tag">Educational security assessment</span>
+        </div>
+    </header>
 
-<h2>Red Team Automation Platform</h2>
+    <main class="container page-shell">
+        <section class="hero">
+            <p class="eyebrow">AUTHORIZED LAB USE ONLY</p>
+            <h1>Understand a target's basic security posture.</h1>
+            <p>Run bounded reconnaissance, a TCP 1-1024 port scan, and an HTTP security-header review, then download a professional PDF report.</p>
+        </section>
 
-<form action="/scan" method="POST">
+        <div class="tool-grid">
+            <section class="card" aria-labelledby="assessment-heading">
+                <div class="card-heading">
+                    <span class="step-number">01</span>
+                    <div>
+                        <h2 id="assessment-heading">Authorized assessment</h2>
+                        <p>Enter one HTTP(S) URL, domain, or IP address. Explicit ports and safe paths are preserved.</p>
+                    </div>
+                </div>
 
-Target Domain:
-<input type="text" name="target" required>
+                {% if assessment_error %}
+                <div class="alert alert-error" role="alert">{{ assessment_error }}</div>
+                {% endif %}
 
-<br><br>
+                <form id="assessment-form" action="{{ url_for('scan') }}" method="post">
+                    <div class="field">
+                        <label for="target">Target URL, domain, or IP</label>
+                        <input id="target" name="target" type="text" maxlength="2048" required
+                               value="{{ submitted_target|default('') }}"
+                               placeholder="http://127.0.0.1:5000 or example.com" autocomplete="off" spellcheck="false">
+                        <p class="field-help">Only one host is accepted. Explicit URL ports apply to the HTTP check; Nmap remains limited to TCP ports 1-1024.</p>
+                    </div>
 
-Test Password:
-<input type="text" name="password">
+                    <label class="authorization" for="authorized">
+                        <input id="authorized" name="authorized" type="checkbox" value="yes" required>
+                        <span>I confirm that I own this target or have explicit permission to assess it.</span>
+                    </label>
 
-<br><br>
+                    <button id="scan-button" class="button button-primary" type="submit">Start authorized assessment</button>
+                    <div id="scan-loading" class="loading-state" role="status" aria-live="polite" hidden>
+                        <span class="spinner" aria-hidden="true"></span>
+                        <span>Assessment in progress. The bounded Nmap scan can take up to 60 seconds.</span>
+                    </div>
+                </form>
+            </section>
 
-<button type="submit">Start Scan</button>
+            <section class="card" aria-labelledby="password-heading">
+                <div class="card-heading">
+                    <span class="step-number">02</span>
+                    <div>
+                        <h2 id="password-heading">Password analyzer</h2>
+                        <p>Evaluate length and character classes locally. The password is never saved or reported.</p>
+                    </div>
+                </div>
 
-</form>
+                <form action="{{ url_for('password_analysis') }}" method="post">
+                    <div class="field">
+                        <label for="password">Password to evaluate</label>
+                        <input id="password" name="password" type="password" required maxlength="4096"
+                               placeholder="Enter a password" autocomplete="new-password">
+                    </div>
+                    <button class="button button-secondary" type="submit">Analyze password</button>
+                </form>
 
+                {% if password_result %}
+                <div class="password-result" aria-live="polite">
+                    <div class="result-summary">
+                        <span class="badge strength-{{ password_result['strength']|lower }}">{{ password_result['strength'] }}</span>
+                        <span>{{ password_result['length'] }} characters / {{ password_result['character_classes'] }} of 4 classes</span>
+                    </div>
+                    <div class="check-grid">
+                        <div>
+                            <h3>Passed checks</h3>
+                            <ul class="check-list pass-list">
+                                {% for check in password_result['passed_checks'] %}<li>{{ check }}</li>{% endfor %}
+                            </ul>
+                        </div>
+                        <div>
+                            <h3>Failed checks</h3>
+                            <ul class="check-list fail-list">
+                                {% for check in password_result['failed_checks'] %}<li>{{ check }}</li>{% else %}<li>None</li>{% endfor %}
+                            </ul>
+                        </div>
+                    </div>
+                    <h3>Recommendations</h3>
+                    <ul class="recommendation-list">
+                        {% for recommendation in password_result['recommendations'] %}<li>{{ recommendation }}</li>{% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+            </section>
+        </div>
+
+        <section class="scope-note">
+            <h2>Assessment boundaries</h2>
+            <p>This college project performs passive WHOIS/DNS collection, a normal TCP connect scan, and response-header inspection. It does not exploit systems, attempt credentials, evade controls, or run destructive commands.</p>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="container">Cybersential &middot; Educational and authorized use only</div>
+    </footer>
 </body>
 </html>

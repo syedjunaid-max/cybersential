@@ -1,44 +1,155 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Assessment Results | Cybersential</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+    <header class="site-header">
+        <div class="container header-inner">
+            <a class="brand" href="{{ url_for('home') }}">Cybersential</a>
+            <span class="header-tag">Assessment complete</span>
+        </div>
+    </header>
 
-<h2>Scan Results</h2>
+    <main class="container page-shell results-page">
+        <section class="results-hero">
+            <div>
+                <p class="eyebrow">AUTHORIZED ASSESSMENT RESULTS</p>
+                <h1>{{ target }}</h1>
+                <p>Scan ID <span class="monospace">{{ scan_id }}</span></p>
+            </div>
+            {% if report_available %}
+            <a class="button button-primary" href="{{ url_for('download_report', scan_id=scan_id) }}">Download PDF report</a>
+            {% endif %}
+        </section>
 
-<h3>Recon</h3>
+        <dl class="metadata-grid">
+            <div><dt>Assessment time</dt><dd>{{ assessed_at }}</dd></div>
+            <div><dt>Authorization</dt><dd><span class="badge severity-low">Confirmed</span></dd></div>
+            <div><dt>Scan host</dt><dd class="monospace">{{ scan_host }}</dd></div>
+            <div><dt>Port scope</dt><dd>TCP 1-1024</dd></div>
+            <div><dt>Scan mode</dt><dd>Normal TCP connect</dd></div>
+        </dl>
 
-<ul>
-{% for key,value in recon.items() %}
-<li>{{key}} : {{value}}</li>
-{% endfor %}
-</ul>
+        {% if report_error %}<div class="alert alert-error" role="alert">{{ report_error }}</div>{% endif %}
 
-<h3>Open Ports</h3>
+        <section class="result-section" aria-labelledby="recon-heading">
+            <div class="section-heading">
+                <span class="step-number">01</span>
+                <div><h2 id="recon-heading">Reconnaissance</h2><p>Resolved addresses, reverse DNS, and WHOIS data.</p></div>
+            </div>
 
-<ul>
-{% for p in ports %}
-<li>Port {{p.port}} : {{p.state}}</li>
-{% endfor %}
-</ul>
+            {% for error in reconnaissance['errors'] %}<div class="alert alert-warning">{{ error }}</div>{% endfor %}
 
-<h3>Security Headers</h3>
+            <h3>IP resolution</h3>
+            {% if reconnaissance['addresses'] %}
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Address</th><th>Version</th><th>Reverse DNS</th></tr></thead>
+                    <tbody>
+                        {% for address in reconnaissance['addresses'] %}
+                        <tr><td class="monospace">{{ address['address'] }}</td><td>{{ address['version'] }}</td><td>{{ address['reverse_dns'] }}</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}<p class="empty-state">No IP addresses were resolved.</p>{% endif %}
 
-<ul>
-{% for key,value in headers.items() %}
-<li>{{key}} : {{value}}</li>
-{% endfor %}
-</ul>
+            <div class="subsection-heading">
+                <h3>WHOIS information</h3>
+                <span class="status-text">{{ reconnaissance['whois']['message'] }}</span>
+            </div>
+            <div class="table-wrap">
+                <table class="key-value-table">
+                    <tbody>
+                        <tr><th>Registrar</th><td>{{ reconnaissance['whois']['registrar'] }}</td></tr>
+                        <tr><th>Creation date</th><td>{{ reconnaissance['whois']['creation_date'] }}</td></tr>
+                        <tr><th>Expiration date</th><td>{{ reconnaissance['whois']['expiration_date'] }}</td></tr>
+                        <tr><th>Organization</th><td>{{ reconnaissance['whois']['organization'] }}</td></tr>
+                        <tr><th>Country</th><td>{{ reconnaissance['whois']['country'] }}</td></tr>
+                        <tr><th>Name servers</th><td>{{ reconnaissance['whois']['name_servers'] }}</td></tr>
+                        <tr><th>Status</th><td>{{ reconnaissance['whois']['status'] }}</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
 
-<h3>Password Strength</h3>
+        <section class="result-section" aria-labelledby="ports-heading">
+            <div class="section-heading">
+                <span class="step-number">02</span>
+                <div><h2 id="ports-heading">TCP port scan</h2><p>{{ port_scan['message'] }}</p></div>
+            </div>
+            {% if port_scan['setup_required'] %}<div class="alert alert-warning">Install the Nmap executable separately and ensure it is available on PATH.</div>{% endif %}
+            {% if port_scan['ports'] %}
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Port</th><th>Protocol</th><th>State</th><th>Service</th><th>Product / version</th></tr></thead>
+                    <tbody>
+                        {% for port in port_scan['ports'] %}
+                        <tr>
+                            <td class="monospace">{{ port['port'] }}</td><td>{{ port['protocol'] }}</td>
+                            <td><span class="badge severity-low">{{ port['state'] }}</span></td>
+                            <td>{{ port['service'] }}</td><td>{{ port['product_version'] }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}<p class="empty-state">No open ports are available to display.</p>{% endif %}
+        </section>
 
-<p>{{password_strength}}</p>
+        <section class="result-section" aria-labelledby="headers-heading">
+            <div class="section-heading">
+                <span class="step-number">03</span>
+                <div><h2 id="headers-heading">HTTP security headers</h2><p>{{ header_analysis['message'] }}</p></div>
+            </div>
+            {% if header_analysis['success'] %}
+            <p class="status-text">Analyzed <span class="monospace">{{ header_analysis['url'] }}</span> (HTTP {{ header_analysis['status_code'] }})</p>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Header</th><th>Scope</th><th>Status</th><th>Severity</th><th>Observed value</th></tr></thead>
+                    <tbody>
+                        {% for finding in header_analysis['headers'] %}
+                        <tr>
+                            <td class="monospace">{{ finding['name'] }}</td>
+                            <td>{{ 'Required' if finding['required'] else 'Optional' }}</td>
+                            <td><span class="status-{{ finding['status']|lower }}">{{ finding['status'] }}</span></td>
+                            <td><span class="badge severity-{{ finding['severity']|lower }}">{{ finding['severity'] }}</span></td>
+                            <td>{{ finding['value'] }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}<div class="alert alert-warning">Header analysis did not complete for this target.</div>{% endif %}
 
-<h3>Report Generated</h3>
+            {% if header_analysis['recommendations'] %}
+            <h3>Recommendations</h3>
+            <div class="finding-list">
+                {% for recommendation in header_analysis['recommendations'] %}
+                <article class="finding-card">
+                    <span class="badge severity-{{ recommendation['severity']|lower }}">{{ recommendation['severity'] }}</span>
+                    <div><h4>Missing {{ recommendation['header'] }}</h4><p>{{ recommendation['text'] }}</p></div>
+                </article>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </section>
 
-<p>{{report}}</p>
+        <section class="report-panel">
+            <div>
+                <h2>Professional PDF report</h2>
+                <p>The report includes authorization, reconnaissance, port results, header findings, severity, recommendations, and the educational-use disclaimer. Passwords are never included.</p>
+            </div>
+            {% if report_available %}<a class="button button-primary" href="{{ url_for('download_report', scan_id=scan_id) }}">Download PDF report</a>{% endif %}
+        </section>
 
+        <a class="back-link" href="{{ url_for('home') }}">&larr; Run another assessment</a>
+    </main>
+
+    <footer class="site-footer"><div class="container">Cybersential &middot; Educational and authorized use only</div></footer>
 </body>
-
 </html>
