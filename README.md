@@ -13,8 +13,68 @@ services/
 |-- port_scanner.py
 |-- header_analyzer.py
 |-- password_analyzer.py
+|-- packet_inspector.py
+|-- traffic_analyzer.py
+|-- blocklist_manager.py
+|-- blocking_audit.py
+|-- website_blocker.py
 `-- report_generator.py
 ```
+
+### Authorized Local Website Blocking System
+
+The `/website-blocker` workflow manages a local Windows blocklist through the
+standard hosts file. It accepts one validated domain or HTTP(S) URL, normalizes
+internationalized names to IDNA, and writes only between these markers:
+
+```text
+# CYBERSENTIAL BLOCKLIST START
+127.0.0.1 example.com
+# CYBERSENTIAL BLOCKLIST END
+```
+
+Content outside the marked section is preserved. Managed entries are sorted and
+deduplicated, the first modification creates a backup under `data/backups/`,
+and updates use a same-directory temporary file plus atomic replacement. Block
+and unblock attempts are recorded in `data/website_blocking_audit.jsonl` without
+including unrelated hosts content, browser data, user addresses, or OS details.
+
+Run the Flask application from an Administrator terminal on a Windows computer
+that you own or explicitly administer. Cybersential does not elevate privileges,
+start shells, modify routers/firewalls/registries, or execute DNS-cache commands.
+After a successful change, run this manually from an Administrator terminal if
+Windows still has a cached lookup:
+
+```powershell
+ipconfig /flushdns
+```
+
+Temporary expiry is intentionally not enabled: reliable automatic unblocking
+would require a persistent scheduler or Windows service. Every managed entry can
+be removed explicitly through the visible blocklist page.
+
+### Deep Packet Inspection and Network Traffic Analysis
+
+The optional `/dpi` workflow performs a passive, metadata-only observation on a
+server-selected local interface. Captures are explicitly authorized, limited to
+5-30 seconds (15 seconds by default) and 10-500 packets (200 by default), and
+stop as soon as either limit is reached. PCAP files and raw payloads are never
+stored. The result contains only timestamps, IP addresses, protocol and port
+metadata, packet lengths, TCP flags, ICMP types, DNS query names, and an
+estimate of encrypted traffic. Rule-based findings are educational heuristics
+and are never confirmation of an attack.
+
+On Windows, install [Npcap](https://npcap.com/) separately before using live
+capture; administrator or equivalent capture permission may be required. The
+application does not install drivers automatically. Capture only traffic on a
+machine/network you own or for which you have explicit authorization; do not
+capture shared, college, workplace, public Wi-Fi, or third-party traffic without
+permission. HTTPS and other encrypted payloads remain encrypted.
+
+Open `http://127.0.0.1:5000/dpi`, choose an interface, duration, and packet
+limit, confirm the authorization checkbox, and start one bounded capture. A
+UUID result page and metadata-only PDF are kept in a process-local store of at
+most ten assessments.
 
 The original `modules/` files remain in the repository for history but are no longer imported by `app.py`.
 

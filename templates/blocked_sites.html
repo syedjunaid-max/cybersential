@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Managed Blocklist | Cybersential</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+    <header class="site-header">
+        <div class="container header-inner">
+            <a class="brand" href="{{ url_for('home') }}">Cybersential</a>
+            <nav class="header-nav" aria-label="Primary navigation">
+                <a href="{{ url_for('home') }}">Assessment tools</a>
+                <a href="{{ url_for('dpi') }}">Deep Packet Inspection</a>
+                <a aria-current="page" href="{{ url_for('website_blocker_page') }}">Website Blocking System</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container page-shell results-page">
+        <section class="results-hero">
+            <div>
+                <p class="eyebrow">LOCAL CYBERSENTIAL-MANAGED ENTRIES ONLY</p>
+                <h1>Current website blocklist</h1>
+                <p>{{ blocker_status['managed_domain_count'] }} managed domain entr{% if blocker_status['managed_domain_count'] == 1 %}y{% else %}ies{% endif %}.</p>
+            </div>
+            <a class="button button-primary" href="{{ url_for('website_blocker_page') }}">Block another domain</a>
+        </section>
+
+        {% if status_message %}<div class="alert alert-success" role="status">{{ status_message }}</div>{% endif %}
+        {% if audit_warning %}<div class="alert alert-warning" role="alert">The website action completed, but the audit log could not be updated.</div>{% endif %}
+        {% if operation_result %}
+        <div class="alert {% if operation_result['success'] %}alert-success{% else %}alert-error{% endif %}" role="alert" data-error-code="{{ operation_result['error_code'] or '' }}">
+            {{ operation_result['message'] }}
+            {% for warning in operation_result['warnings'] %}<div>{{ warning }}</div>{% endfor %}
+        </div>
+        {% endif %}
+
+        {% if not blocker_status['available'] %}
+        <div class="alert alert-error" role="alert">Hosts file unavailable. No unrelated system content is displayed.</div>
+        {% elif not blocker_status['writable'] %}
+        <div class="alert alert-warning" role="alert">Administrator privileges are required to change this list.</div>
+        {% endif %}
+
+        <section class="result-section" aria-labelledby="blocklist-heading">
+            <div class="section-heading list-heading">
+                <div>
+                    <h2 id="blocklist-heading">Managed blocked domains</h2>
+                    <p>Sorted and deduplicated entries from the marked Cybersential section.</p>
+                </div>
+                <span class="badge severity-info">{{ blocker_status['managed_domain_count'] }} entries</span>
+            </div>
+
+            <div class="field filter-field">
+                <label for="blocklist-filter">Search/filter</label>
+                <input id="blocklist-filter" type="text" data-domain-filter="full-blocklist" placeholder="Type part of a domain" autocomplete="off">
+            </div>
+
+            <div id="full-blocklist" class="managed-domain-list">
+                {% for domain in blocker_status['managed_domains'] %}
+                <article class="managed-domain-row" data-domain-row data-domain-value="{{ domain }}">
+                    <div><strong class="monospace">{{ domain }}</strong><p class="field-help">Local mapping to 127.0.0.1</p></div>
+                    <form action="{{ url_for('website_blocker_unblock') }}" method="post" class="inline-unblock-form">
+                        <input name="domain" type="hidden" value="{{ domain }}">
+                        <label class="compact-authorization"><input name="authorized" type="checkbox" value="yes" required> <span>Confirm authorization</span></label>
+                        <button class="button button-danger button-small" type="submit" {% if not blocker_status['writable'] %}disabled{% endif %}>Unblock</button>
+                    </form>
+                </article>
+                {% else %}
+                <p class="empty-state">No domains are currently managed by Cybersential.</p>
+                {% endfor %}
+            </div>
+        </section>
+
+        <div class="blocker-summary-grid">
+            <section class="card notice-card">
+                <h2>Backup status</h2>
+                <p>{{ blocker_status['backup']['message'] }}</p>
+            </section>
+            <section class="card notice-card">
+                <h2>Audit summary</h2>
+                <p>{{ blocker_status['audit']['recent_success_count'] }} successful event(s) among the {{ blocker_status['audit']['recent_event_count'] }} most recent readable records.</p>
+            </section>
+            <section class="card notice-card">
+                <h2>DNS cache note</h2>
+                <div class="command-copy"><code id="list-dns-flush-command">ipconfig /flushdns</code><button class="button button-small button-secondary" type="button" data-copy-target="list-dns-flush-command">Copy</button></div>
+                <p class="field-help">Run manually from an Administrator terminal after a change.</p>
+            </section>
+        </div>
+
+        <section class="scope-note">
+            <h2>No hidden expiry behavior</h2>
+            <p>Entries remain until explicitly unblocked. Cybersential does not install a service, schedule tasks, escalate privileges, or execute DNS-cache commands.</p>
+        </section>
+    </main>
+
+    <footer class="site-footer"><div class="container">Cybersential &middot; Transparent, reversible, local-only blocking</div></footer>
+</body>
+</html>

@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Traffic Analysis Results | Cybersential</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="container header-inner">
+            <a class="brand" href="{{ url_for('home') }}">Cybersential</a>
+            <span class="header-tag">Metadata-only traffic analysis complete</span>
+        </div>
+    </header>
+
+    <main class="container page-shell results-page">
+        <section class="results-hero">
+            <div>
+                <p class="eyebrow">AUTHORIZED PASSIVE CAPTURE RESULTS</p>
+                <h1>Network traffic observation</h1>
+                <p>Capture ID <span class="monospace">{{ capture_id }}</span></p>
+            </div>
+            {% if assessment['report_available'] %}
+            <a class="button button-primary" href="{{ url_for('download_dpi_report', capture_id=capture_id) }}">Download DPI PDF report</a>
+            {% endif %}
+        </section>
+
+        <dl class="metadata-grid dpi-metadata-grid">
+            <div><dt>Assessment time</dt><dd>{{ assessment['assessed_at'] }}</dd></div>
+            <div><dt>Authorization</dt><dd><span class="badge severity-low">Confirmed</span></dd></div>
+            <div><dt>Interface</dt><dd>{{ assessment['capture']['selected_interface'] }}</dd></div>
+            <div><dt>Observed duration</dt><dd>{{ assessment['capture']['actual_duration_seconds'] }} seconds</dd></div>
+            <div><dt>Packet limit</dt><dd>{{ assessment['capture']['packet_limit'] }}</dd></div>
+            <div><dt>PCAP storage</dt><dd>Disabled</dd></div>
+            <div><dt>Raw payload storage</dt><dd>Disabled</dd></div>
+        </dl>
+
+        {% if assessment['summary']['total_packets'] == 0 %}
+        <div class="alert alert-warning" role="status">No traffic was observed during this bounded capture. Try the correct authorized interface while generating normal local traffic.</div>
+        {% endif %}
+        {% if assessment['report_error'] %}<div class="alert alert-error" role="alert">{{ assessment['report_error'] }}</div>{% endif %}
+
+        <section class="result-section" aria-labelledby="overview-heading">
+            <div class="section-heading">
+                <span class="step-number">01</span>
+                <div><h2 id="overview-heading">Capture overview</h2><p>{{ assessment['capture']['message'] }}</p></div>
+            </div>
+            <div class="metric-grid">
+                <article><span>Total packets</span><strong>{{ assessment['summary']['total_packets'] }}</strong></article>
+                <article><span>Total bytes</span><strong>{{ assessment['summary']['total_bytes'] }}</strong></article>
+                <article><span>Average size</span><strong>{{ assessment['summary']['average_packet_size'] }} B</strong></article>
+                <article><span>IPv4 / IPv6</span><strong>{{ assessment['summary']['ipv4_packet_count'] }} / {{ assessment['summary']['ipv6_packet_count'] }}</strong></article>
+                <article><span>Unique sources</span><strong>{{ assessment['summary']['unique_source_ip_count'] }}</strong></article>
+                <article><span>Unique destinations</span><strong>{{ assessment['summary']['unique_destination_ip_count'] }}</strong></article>
+            </div>
+        </section>
+
+        <section class="result-section" aria-labelledby="protocol-heading">
+            <div class="section-heading">
+                <span class="step-number">02</span>
+                <div><h2 id="protocol-heading">Protocol distribution</h2><p>DNS is counted as an observation within its transport protocol.</p></div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Protocol</th><th>Packets</th><th>Share</th></tr></thead>
+                    <tbody>
+                        {% for item in assessment['summary']['protocol_distribution'] %}
+                        <tr><td>{{ item['protocol'] }}</td><td>{{ item['count'] }}</td><td>{{ item['percentage'] }}%</td></tr>
+                        {% else %}<tr><td colspan="3">No protocols were observed.</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <h3>Encrypted traffic estimate</h3>
+            <p class="status-text">Likely encrypted: {{ assessment['summary']['encryption_estimate']['likely_encrypted'] }} ({{ assessment['summary']['encryption_estimate']['likely_encrypted_percentage'] }}%). Not identified as encrypted: {{ assessment['summary']['encryption_estimate']['not_identified_as_encrypted'] }}.</p>
+            <p class="field-help">{{ assessment['summary']['encryption_estimate']['basis'] }}</p>
+        </section>
+
+        <section class="result-section" aria-labelledby="endpoint-heading">
+            <div class="section-heading">
+                <span class="step-number">03</span>
+                <div><h2 id="endpoint-heading">Traffic endpoints</h2><p>Top lists are limited to 10 entries.</p></div>
+            </div>
+            <div class="split-tables">
+                <div>
+                    <h3>Top source IPs</h3>
+                    <div class="table-wrap"><table><thead><tr><th>Source IP</th><th>Packets</th></tr></thead><tbody>
+                        {% for item in assessment['summary']['top_source_ips'] %}<tr><td class="monospace">{{ item['value'] }}</td><td>{{ item['count'] }}</td></tr>
+                        {% else %}<tr><td colspan="2">No source IPs observed.</td></tr>{% endfor %}
+                    </tbody></table></div>
+                </div>
+                <div>
+                    <h3>Top destination IPs</h3>
+                    <div class="table-wrap"><table><thead><tr><th>Destination IP</th><th>Packets</th></tr></thead><tbody>
+                        {% for item in assessment['summary']['top_destination_ips'] %}<tr><td class="monospace">{{ item['value'] }}</td><td>{{ item['count'] }}</td></tr>
+                        {% else %}<tr><td colspan="2">No destination IPs observed.</td></tr>{% endfor %}
+                    </tbody></table></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="result-section" aria-labelledby="port-heading">
+            <div class="section-heading">
+                <span class="step-number">04</span>
+                <div><h2 id="port-heading">Destination ports and TCP flags</h2><p>Service labels are estimates based on standard port mappings, not software identification.</p></div>
+            </div>
+            <div class="split-tables">
+                <div>
+                    <h3>Top destination ports</h3>
+                    <div class="table-wrap"><table><thead><tr><th>Port</th><th>Packets</th><th>Service estimate</th></tr></thead><tbody>
+                        {% for item in assessment['summary']['top_destination_ports'] %}<tr><td class="monospace">{{ item['port'] }}</td><td>{{ item['count'] }}</td><td>{{ item['service_estimate'] }}</td></tr>
+                        {% else %}<tr><td colspan="3">No destination ports observed.</td></tr>{% endfor %}
+                    </tbody></table></div>
+                </div>
+                <div>
+                    <h3>TCP flag distribution</h3>
+                    <div class="table-wrap"><table><thead><tr><th>Flags</th><th>Packets</th></tr></thead><tbody>
+                        {% for item in assessment['summary']['tcp_flag_distribution'] %}<tr><td class="monospace">{{ item['value'] }}</td><td>{{ item['count'] }}</td></tr>
+                        {% else %}<tr><td colspan="2">No TCP flags observed.</td></tr>{% endfor %}
+                    </tbody></table></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="result-section" aria-labelledby="dns-heading">
+            <div class="section-heading">
+                <span class="step-number">05</span>
+                <div><h2 id="dns-heading">DNS observations</h2><p>{{ assessment['summary']['dns_packet_count'] }} query observation(s); names are retained only in this bounded assessment and its report.</p></div>
+            </div>
+            <div class="table-wrap"><table><thead><tr><th>Query name</th><th>Count</th></tr></thead><tbody>
+                {% for item in assessment['summary']['dns_queries_observed'] %}<tr><td class="monospace">{{ item['value'] }}</td><td>{{ item['count'] }}</td></tr>
+                {% else %}<tr><td colspan="2">No DNS queries observed.</td></tr>{% endfor %}
+            </tbody></table></div>
+        </section>
+
+        <section class="result-section" aria-labelledby="findings-heading">
+            <div class="section-heading">
+                <span class="step-number">06</span>
+                <div><h2 id="findings-heading">Rule-based findings</h2><p>Every finding is tentative and must be interpreted in context.</p></div>
+            </div>
+            <div class="finding-list">
+                {% for finding in assessment['findings'] %}
+                <article class="finding-card finding-card-stacked">
+                    <span class="badge severity-{{ finding['severity']|lower }}">{{ finding['severity'] }}</span>
+                    <div>
+                        <h3>{{ finding['title'] }}</h3>
+                        <p><strong>Evidence:</strong> {{ finding['evidence'] }}</p>
+                        <p><strong>Recommendation:</strong> {{ finding['recommendation'] }}</p>
+                        <p><strong>Confidence / limitation:</strong> {{ finding['confidence'] }}</p>
+                    </div>
+                </article>
+                {% else %}<p class="empty-state">No configured anomaly threshold was reached. This does not prove that the traffic or network is secure.</p>{% endfor %}
+            </div>
+        </section>
+
+        <section class="result-section" aria-labelledby="limitations-heading">
+            <div class="section-heading">
+                <span class="step-number">07</span>
+                <div><h2 id="limitations-heading">Technical and safety limitations</h2><p>Results represent only a short point-in-time observation.</p></div>
+            </div>
+            <ul class="boundary-list">
+                {% for limitation in assessment['limitations'] %}<li>{{ limitation }}</li>{% endfor %}
+            </ul>
+            <div class="alert alert-warning">Shared, college, workplace, public Wi-Fi, and third-party traffic must not be captured without explicit permission. HTTPS content remained encrypted.</div>
+        </section>
+
+        <section class="report-panel">
+            <div>
+                <h2>Metadata-only PDF report</h2>
+                <p>The report contains capture context, aggregated metadata, tentative findings, recommendations, limitations, and the authorization disclaimer. It contains no raw packet payloads or sensitive application content.</p>
+            </div>
+            {% if assessment['report_available'] %}<a class="button button-primary" href="{{ url_for('download_dpi_report', capture_id=capture_id) }}">Download DPI PDF report</a>{% endif %}
+        </section>
+
+        <a class="back-link" href="{{ url_for('dpi') }}">&larr; Run another authorized bounded capture</a>
+    </main>
+
+    <footer class="site-footer"><div class="container">Cybersential &middot; Passive metadata-only analysis &middot; Educational and authorized use only</div></footer>
+</body>
+</html>
