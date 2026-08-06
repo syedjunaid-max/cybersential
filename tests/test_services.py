@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,6 +18,14 @@ except ImportError:  # pragma: no cover - dependency is declared in requirements
 import services.report_generator as report_generator
 import services.packet_inspector as packet_inspector
 from services.header_analyzer import UnsafeRedirectError, _validate_redirect_url, analyze_security_headers
+from services.blocklist_manager import (
+    MANAGED_SECTION_END,
+    MANAGED_SECTION_START,
+    BlocklistError,
+    DomainValidationError,
+    affected_domains_for,
+    normalize_domain,
+)
 from services.password_analyzer import analyze_password
 from services.packet_inspector import (
     MAX_CAPTURE_DURATION,
@@ -29,6 +38,7 @@ from services.packet_inspector import (
     validate_capture_request,
 )
 from services.traffic_analyzer import DPIResultStore, analyze_traffic
+from services.website_blocker import WebsiteBlocker
 from services.port_scanner import NMAP_ARGUMENTS, PORT_RANGE, scan_tcp_ports
 from services.reconnaissance import (
     TargetValidationError,
@@ -478,6 +488,244 @@ class DPIResultStoreTests(unittest.TestCase):
         self.assertIsNone(store.get(ids[0]))
         self.assertEqual(store.get(ids[-1])["index"], 3)
         self.assertTrue(all(len(item) == 36 for item in store.ids()))
+
+
+class WebsiteDomainValidationTests(unittest.TestCase):
+    def test_valid_domain_and_url_normalization(self):
+        cases = {
+            "Example.COM.": "example.com",
+            "www.example.com": "www.example.com",
+            "https://Example.com/path?value=1#part": "example.com",
+            "https://www.Example.com:443/page": "www.example.com",
+            "example.com:8443/path": "example.com",
+        }
+        for submitted, expected in cases.items():
+            with self.subTest(submitted=submitted):
+                self.assertEqual(normalize_domain(submitted), expected)
+
+    def test_idna_domain_normalization(self):
+        self.assertEqual(normalize_domain("https://b\u00fccher.example/catalog"), "xn--bcher-kva.example")
+
+    def test_rejects_unsafe_or_non_domain_values(self):
+        invalid = (
+            "",
+            "127.0.0.1",
+            "::1",
+            "localhost",
+            "test.localhost",
+            "*.example.com",
+            "intranet",
+            "bad..example.com",
+            "-bad.example.com",
+            "bad_.example.com",
+            "C:\\Windows\\System32\\drivers\\etc\\hosts",
+            "example.com\nevil.example",
+            "example.com evil.example",
+            "127.0.0.1 example.com",
+            "example.com;whoami",
+            "ftp://example.com",
+            "https://user:password@example.com",
+        )
+        for submitted in invalid:
+            with self.subTest(submitted=submitted):
+                with self.assertRaises(DomainValidationError):
+                    normalize_domain(submitted)
+
+    def test_root_and_www_expansion_does_not_expand_arbitrary_subdomains(self):
+        self.assertEqual(affected_domains_for("example.com", True), ["example.com", "www.example.com"])
+        self.assertEqual(affected_domains_for("www.example.com", True), ["example.com", "www.example.com"])
+        self.assertEqual(affected_domains_for("example.co.uk", True), ["example.co.uk", "www.example.co.uk"])
+        self.assertEqual(affected_domains_for("shop.example.com", True), ["shop.example.com"])
+        self.assertEqual(affected_domains_for("www.shop.example.com", True), ["www.shop.example.com"])
+        self.assertEqual(affected_domains_for("example.com", False), ["example.com"])
+
+
+class WebsiteBlockerServiceTests(unittest.TestCase):
+    ORIGINAL_HOSTS = (
+        b"# Windows hosts fixture\r\n"
+        b"127.0.0.1 localhost\r\n"
+        b"10.10.10.10 existing.lab.example\r\n"
+    )
+
+    def setUp(self):
+        workspace_tmp = Path(__file__).resolve().parents[1] / "tmp"
+        workspace_tmp.mkdir(exist_ok=True)
+        self.temporary_directory = tempfile.TemporaryDirectory(dir=workspace_tmp)
+        self.root = Path(self.temporary_directory.name)
+        self.hosts_path = self.root / "hosts"
+        self.hosts_path.write_bytes(self.ORIGINAL_HOSTS)
+        self.backup_directory = self.root / "backups"
+        self.audit_path = self.root / "website_blocking_audit.jsonl"
+        self.blocker = WebsiteBlocker(
+            hosts_path=self.hosts_path,
+            backup_directory=self.backup_directory,
+            audit_path=self.audit_path,
+        )
+
+    def tearDown(self):
+        self.temporary_directory.cleanup()
+
+    def test_blocks_new_domain_and_creates_managed_markers(self):
+        result = self.blocker.block_domain("https://Example.com/path", include_www=False, authorization_confirmed=True)
+        self.assertTrue(result["success"])
+        self.assertTrue(result["changed"])
+        content = self.hosts_path.read_bytes()
+        self.assertTrue(content.startswith(self.ORIGINAL_HOSTS))
+        self.assertIn(MANAGED_SECTION_START.encode(), content)
+        self.assertIn(b"127.0.0.1 example.com", content)
+        self.assertIn(MANAGED_SECTION_END.encode(), content)
+        self.assertEqual(self.blocker.get_managed_domains(), ["example.com"])
+
+    def test_blocks_root_and_www_without_duplicates(self):
+        first = self.blocker.block_domain("www.example.com", include_www=True, authorization_confirmed=True)
+        second = self.blocker.block_domain("example.com", include_www=True, authorization_confirmed=True)
+        self.assertTrue(first["success"])
+        self.assertEqual(first["affected_domains"], ["example.com", "www.example.com"])
+        self.assertTrue(second["success"])
+        self.assertFalse(second["changed"])
+        self.assertEqual(second["error_code"], "already_blocked")
+        content = self.hosts_path.read_text(encoding="utf-8")
+        self.assertEqual(content.count("127.0.0.1 example.com"), 1)
+        self.assertEqual(content.count("127.0.0.1 www.example.com"), 1)
+
+    def test_unblocks_present_and_missing_domains(self):
+        self.blocker.block_domain("example.com", include_www=False, authorization_confirmed=True)
+        removed = self.blocker.unblock_domain("example.com", include_www=False, authorization_confirmed=True)
+        missing = self.blocker.unblock_domain("example.com", include_www=False, authorization_confirmed=True)
+        self.assertTrue(removed["success"])
+        self.assertTrue(removed["changed"])
+        self.assertEqual(self.blocker.get_managed_domains(), [])
+        self.assertTrue(missing["success"])
+        self.assertFalse(missing["changed"])
+        self.assertEqual(missing["error_code"], "domain_not_blocked")
+
+    def test_preserves_content_outside_existing_managed_section_exactly(self):
+        prefix = b"# prefix\r\n10.0.0.1 keep.before.example\r\n"
+        section = (
+            f"{MANAGED_SECTION_START}\r\n"
+            "127.0.0.1 old.example\r\n"
+            f"{MANAGED_SECTION_END}\r\n"
+        ).encode()
+        suffix = b"10.0.0.2 keep.after.example\r\n# suffix\r\n"
+        self.hosts_path.write_bytes(prefix + section + suffix)
+        result = self.blocker.block_domain("new.example", include_www=False, authorization_confirmed=True)
+        self.assertTrue(result["success"])
+        updated = self.hosts_path.read_bytes()
+        self.assertTrue(updated.startswith(prefix))
+        self.assertTrue(updated.endswith(suffix))
+        self.assertIn(b"127.0.0.1 new.example", updated)
+        self.assertIn(b"127.0.0.1 old.example", updated)
+
+    def test_preserves_crlf_and_deduplicates_managed_entries(self):
+        self.hosts_path.write_bytes(
+            self.ORIGINAL_HOSTS
+            + (
+                f"{MANAGED_SECTION_START}\r\n"
+                "127.0.0.1 z.example\r\n"
+                "127.0.0.1 a.example\r\n"
+                "127.0.0.1 z.example\r\n"
+                f"{MANAGED_SECTION_END}\r\n"
+            ).encode()
+        )
+        result = self.blocker.block_domain("m.example", include_www=False, authorization_confirmed=True)
+        self.assertTrue(result["success"])
+        content = self.hosts_path.read_bytes()
+        self.assertNotIn(b"\n", content.replace(b"\r\n", b""))
+        text = content.decode()
+        self.assertEqual(text.count("127.0.0.1 z.example"), 1)
+        self.assertLess(text.index("127.0.0.1 a.example"), text.index("127.0.0.1 m.example"))
+        self.assertLess(text.index("127.0.0.1 m.example"), text.index("127.0.0.1 z.example"))
+
+    def test_backup_is_created_once_from_original_content(self):
+        self.blocker.block_domain("example.com", include_www=False, authorization_confirmed=True)
+        backups = list(self.backup_directory.glob("hosts-backup-*.txt"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_bytes(), self.ORIGINAL_HOSTS)
+        self.blocker.block_domain("second.example", include_www=False, authorization_confirmed=True)
+        self.assertEqual(len(list(self.backup_directory.glob("hosts-backup-*.txt"))), 1)
+
+    def test_backup_failure_prevents_modification(self):
+        original = self.hosts_path.read_bytes()
+        failure = BlocklistError(
+            "backup_failed",
+            "The hosts-file backup could not be created, so no modification was attempted.",
+            503,
+        )
+        with patch.object(self.blocker.manager, "create_backup_if_required", side_effect=failure):
+            result = self.blocker.block_domain("example.com", include_www=False, authorization_confirmed=True)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error_code"], "backup_failed")
+        self.assertEqual(self.hosts_path.read_bytes(), original)
+
+    def test_atomic_write_failure_restores_original(self):
+        original = self.hosts_path.read_bytes()
+
+        def corrupt_then_fail(_content):
+            self.hosts_path.write_bytes(b"corrupted")
+            raise OSError("simulated replacement failure")
+
+        with patch.object(self.blocker.manager, "_atomic_write", side_effect=corrupt_then_fail):
+            result = self.blocker.block_domain("example.com", include_www=False, authorization_confirmed=True)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error_code"], "atomic_write_failed")
+        self.assertEqual(self.hosts_path.read_bytes(), original)
+
+    def test_permission_denied_is_friendly_and_preserves_file(self):
+        original = self.hosts_path.read_bytes()
+        denied = BlocklistError(
+            "administrator_required",
+            "Administrator privileges are required to modify the Windows hosts file.",
+            403,
+        )
+        with patch.object(self.blocker.manager, "_assert_modifiable", side_effect=denied):
+            result = self.blocker.block_domain("example.com", include_www=False, authorization_confirmed=True)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error_code"], "administrator_required")
+        self.assertNotIn(str(self.hosts_path), result["message"])
+        self.assertEqual(self.hosts_path.read_bytes(), original)
+
+    def test_unavailable_hosts_and_malformed_markers_fail_closed(self):
+        self.hosts_path.unlink()
+        unavailable = self.blocker.block_domain("example.com", include_www=False, authorization_confirmed=True)
+        self.assertFalse(unavailable["success"])
+        self.assertEqual(unavailable["error_code"], "hosts_file_unavailable")
+
+        malformed = self.ORIGINAL_HOSTS + f"{MANAGED_SECTION_START}\r\n127.0.0.1 example.com\r\n".encode()
+        self.hosts_path.write_bytes(malformed)
+        invalid_section = self.blocker.block_domain("second.example", include_www=False, authorization_confirmed=True)
+        self.assertFalse(invalid_section["success"])
+        self.assertEqual(invalid_section["error_code"], "managed_section_invalid")
+        self.assertEqual(self.hosts_path.read_bytes(), malformed)
+
+    def test_authorization_is_required_before_modification(self):
+        original = self.hosts_path.read_bytes()
+        result = self.blocker.block_domain("example.com", include_www=False, authorization_confirmed=False)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error_code"], "authorization_required")
+        self.assertEqual(self.hosts_path.read_bytes(), original)
+
+    def test_audit_logging_contains_only_approved_fields(self):
+        result = self.blocker.block_domain("example.com", include_www=False, authorization_confirmed=True)
+        self.assertTrue(result["success"])
+        record = json.loads(self.audit_path.read_text(encoding="utf-8").splitlines()[-1])
+        self.assertEqual(
+            set(record),
+            {
+                "event_id", "action", "normalized_domain", "affected_domains", "timestamp",
+                "success", "authorization_confirmed", "error_code",
+            },
+        )
+        self.assertEqual(record["action"], "block")
+        self.assertNotIn("hosts", repr(record).lower())
+        self.assertNotIn(str(self.hosts_path), repr(record))
+
+    def test_audit_failure_is_a_non_fatal_warning(self):
+        with patch.object(self.blocker.audit, "record", side_effect=OSError("audit unavailable")):
+            result = self.blocker.block_domain("example.com", include_www=False, authorization_confirmed=True)
+        self.assertTrue(result["success"])
+        self.assertTrue(result["changed"])
+        self.assertTrue(result["warnings"])
+        self.assertIn("example.com", self.blocker.get_managed_domains())
 
 
 class ReportGeneratorTests(unittest.TestCase):

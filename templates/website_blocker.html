@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Authorized local Windows website blocking">
+    <title>Website Blocking System | Cybersential</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+    <header class="site-header">
+        <div class="container header-inner">
+            <a class="brand" href="{{ url_for('home') }}">Cybersential</a>
+            <nav class="header-nav" aria-label="Primary navigation">
+                <a href="{{ url_for('home') }}">Assessment tools</a>
+                <a href="{{ url_for('dpi') }}">Deep Packet Inspection</a>
+                <a aria-current="page" href="{{ url_for('website_blocker_page') }}">Website Blocking System</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container page-shell blocker-page">
+        <section class="hero compact-hero">
+            <p class="eyebrow">LOCAL WINDOWS ADMINISTRATION ONLY</p>
+            <h1>Authorized Local Website Blocking System</h1>
+            <p>Manage only Cybersential's marked blocklist section in this computer's Windows hosts file. Existing system and third-party entries remain outside the managed section and are preserved.</p>
+        </section>
+
+        {% if status_message %}<div class="alert alert-success" role="status">{{ status_message }}</div>{% endif %}
+        {% if audit_warning %}<div class="alert alert-warning" role="alert">The website action completed, but the audit log could not be updated.</div>{% endif %}
+        {% if operation_result %}
+        <div class="alert {% if operation_result['success'] %}alert-success{% else %}alert-error{% endif %}" role="alert" data-error-code="{{ operation_result['error_code'] or '' }}">
+            {{ operation_result['message'] }}
+            {% for warning in operation_result['warnings'] %}<div>{{ warning }}</div>{% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="blocker-layout">
+            <section class="card" aria-labelledby="block-domain-heading">
+                <div class="card-heading">
+                    <span class="step-number">07</span>
+                    <div>
+                        <h2 id="block-domain-heading">Block a domain locally</h2>
+                        <p>One domain or HTTP(S) URL per request. The normalized domain is redirected to 127.0.0.1 only on this computer.</p>
+                    </div>
+                </div>
+
+                {% if not blocker_status['available'] %}
+                <div class="alert alert-error" role="alert">Hosts file unavailable. Start this feature on a supported Windows computer.</div>
+                {% elif not blocker_status['writable'] %}
+                <div class="alert alert-warning" role="alert">Administrator privileges are required to modify the Windows hosts file. Restart the Flask application from an Administrator terminal.</div>
+                {% endif %}
+
+                <form id="website-block-form" action="{{ url_for('website_blocker_block') }}" method="post">
+                    <div class="field">
+                        <label for="block-domain">Domain or HTTP(S) URL</label>
+                        <input id="block-domain" name="domain" type="text" maxlength="2048" required autocomplete="off" spellcheck="false" placeholder="example.com or https://example.com/path">
+                        <p class="field-help">IP addresses, localhost, wildcards, file paths, multiple domains, and hosts-file syntax are rejected.</p>
+                    </div>
+
+                    <label class="option-row" for="include-www">
+                        <input id="include-www" name="include_www" type="checkbox" value="yes" checked>
+                        <span>Block both root domain and www subdomain when the input is a root domain.</span>
+                    </label>
+
+                    <label class="authorization" for="block-authorized">
+                        <input id="block-authorized" name="authorized" type="checkbox" value="yes" required>
+                        <span>I confirm that I own or explicitly administer this Windows computer or lab machine and authorize this local hosts-file change.</span>
+                    </label>
+
+                    <button id="website-block-button" class="button button-primary" type="submit" {% if not blocker_status['available'] or not blocker_status['writable'] %}disabled{% endif %}>Block website</button>
+                    <div id="website-block-loading" class="loading-state" role="status" aria-live="polite" hidden>
+                        <span class="spinner" aria-hidden="true"></span>
+                        <span>Validating and updating the managed blocklist atomically...</span>
+                    </div>
+                </form>
+            </section>
+
+            <aside class="notice-stack" aria-label="Blocking status and safety notices">
+                <section class="card notice-card">
+                    <h2>System status</h2>
+                    <dl class="compact-details">
+                        <div><dt>Hosts file</dt><dd>{{ blocker_status['message'] }}</dd></div>
+                        <div><dt>Managed domains</dt><dd>{{ blocker_status['managed_domain_count'] }}</dd></div>
+                        <div><dt>Backup</dt><dd>{{ blocker_status['backup']['message'] }}</dd></div>
+                        <div><dt>Recent audit events</dt><dd>{{ blocker_status['audit']['recent_event_count'] }}</dd></div>
+                    </dl>
+                </section>
+
+                <section class="card notice-card">
+                    <h2>Refresh Windows DNS cache</h2>
+                    <p>After a successful block or unblock, Windows may continue using a cached lookup.</p>
+                    <div class="command-copy">
+                        <code id="dns-flush-command">ipconfig /flushdns</code>
+                        <button class="button button-small button-secondary" type="button" data-copy-target="dns-flush-command">Copy</button>
+                    </div>
+                    <p class="field-help">Open an Administrator terminal and run the command manually. Cybersential never executes it.</p>
+                </section>
+
+                <section class="card notice-card">
+                    <h2>Transparent boundaries</h2>
+                    <p>This is local-only and reversible. It does not modify routers, firewalls, DNS servers, registries, browsers, proxies, or remote systems. It performs no privilege escalation or command execution.</p>
+                </section>
+            </aside>
+        </div>
+
+        <section class="result-section" aria-labelledby="managed-sites-heading">
+            <div class="section-heading list-heading">
+                <div>
+                    <h2 id="managed-sites-heading">Current Cybersential-managed domains</h2>
+                    <p>Only entries between the Cybersential markers are displayed.</p>
+                </div>
+                <a class="button button-secondary" href="{{ url_for('website_blocker_list') }}">Open full blocklist</a>
+            </div>
+            <div class="field filter-field">
+                <label for="managed-domain-filter">Search managed domains</label>
+                <input id="managed-domain-filter" type="text" data-domain-filter="managed-domain-list" placeholder="Filter the list" autocomplete="off">
+            </div>
+            <div id="managed-domain-list" class="managed-domain-list">
+                {% for domain in blocker_status['managed_domains'] %}
+                <article class="managed-domain-row" data-domain-row data-domain-value="{{ domain }}">
+                    <span class="monospace">{{ domain }}</span>
+                    <form action="{{ url_for('website_blocker_unblock') }}" method="post" class="inline-unblock-form">
+                        <input name="domain" type="hidden" value="{{ domain }}">
+                        <label class="compact-authorization"><input name="authorized" type="checkbox" value="yes" required> <span>Authorize</span></label>
+                        <button class="button button-danger button-small" type="submit">Unblock</button>
+                    </form>
+                </article>
+                {% else %}
+                <p class="empty-state">No domains are currently managed by Cybersential.</p>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="scope-note">
+            <h2>Permanent entries only</h2>
+            <p>Temporary expiry is intentionally not enabled because reliable automatic unblocking would require a persistent background scheduler or Windows service. Use the visible unblock controls to reverse a change.</p>
+        </section>
+    </main>
+
+    <footer class="site-footer"><div class="container">Cybersential &middot; Local and authorized administration only &middot; No remote or network-wide blocking</div></footer>
+</body>
+</html>

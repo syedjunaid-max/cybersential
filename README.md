@@ -15,8 +15,43 @@ services/
 |-- password_analyzer.py
 |-- packet_inspector.py
 |-- traffic_analyzer.py
+|-- blocklist_manager.py
+|-- blocking_audit.py
+|-- website_blocker.py
 `-- report_generator.py
 ```
+
+### Authorized Local Website Blocking System
+
+The `/website-blocker` workflow manages a local Windows blocklist through the
+standard hosts file. It accepts one validated domain or HTTP(S) URL, normalizes
+internationalized names to IDNA, and writes only between these markers:
+
+```text
+# CYBERSENTIAL BLOCKLIST START
+127.0.0.1 example.com
+# CYBERSENTIAL BLOCKLIST END
+```
+
+Content outside the marked section is preserved. Managed entries are sorted and
+deduplicated, the first modification creates a backup under `data/backups/`,
+and updates use a same-directory temporary file plus atomic replacement. Block
+and unblock attempts are recorded in `data/website_blocking_audit.jsonl` without
+including unrelated hosts content, browser data, user addresses, or OS details.
+
+Run the Flask application from an Administrator terminal on a Windows computer
+that you own or explicitly administer. Cybersential does not elevate privileges,
+start shells, modify routers/firewalls/registries, or execute DNS-cache commands.
+After a successful change, run this manually from an Administrator terminal if
+Windows still has a cached lookup:
+
+```powershell
+ipconfig /flushdns
+```
+
+Temporary expiry is intentionally not enabled: reliable automatic unblocking
+would require a persistent scheduler or Windows service. Every managed entry can
+be removed explicitly through the visible blocklist page.
 
 ### Deep Packet Inspection and Network Traffic Analysis
 

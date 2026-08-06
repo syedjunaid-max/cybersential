@@ -62,10 +62,17 @@ class FlaskApplicationTests(unittest.TestCase):
         workspace_tmp = Path(__file__).resolve().parents[1] / "tmp"
         workspace_tmp.mkdir(exist_ok=True)
         self.temporary_directory = tempfile.TemporaryDirectory(dir=workspace_tmp)
+        self.test_root = Path(self.temporary_directory.name)
+        self.hosts_path = self.test_root / "hosts"
+        self.original_hosts = b"# test hosts\r\n127.0.0.1 localhost\r\n"
+        self.hosts_path.write_bytes(self.original_hosts)
         self.app = create_app(
             {
                 "TESTING": True,
                 "REPORTS_DIRECTORY": self.temporary_directory.name,
+                "WEBSITE_BLOCKER_HOSTS_PATH": str(self.hosts_path),
+                "WEBSITE_BLOCKER_BACKUP_DIRECTORY": str(self.test_root / "backups"),
+                "WEBSITE_BLOCKER_AUDIT_PATH": str(self.test_root / "blocking-audit.jsonl"),
             }
         )
         self.client = self.app.test_client()
@@ -204,6 +211,85 @@ class FlaskApplicationTests(unittest.TestCase):
         report_path = dpi_report_path_for_capture_id(capture_id, self.temporary_directory.name)
         report_path.write_bytes(b"%PDF-1.4 test")
         self.assertEqual(self.client.get(f"/dpi/reports/{capture_id}/download").status_code, 404)
+
+    def test_website_blocker_pages_use_only_configured_test_hosts_file(self):
+        page = self.client.get("/website-blocker")
+        listing = self.client.get("/website-blocker/list")
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(listing.status_code, 200)
+        self.assertIn(b"Website Blocking System", page.data)
+        self.assertIn(b"Administrator terminal", page.data)
+        self.assertIn(b"ipconfig /flushdns", page.data)
+        self.assertEqual(page.headers["Cache-Control"], "no-store")
+        self.assertEqual(self.hosts_path.read_bytes(), self.original_hosts)
+
+    def test_website_block_requires_authorization_and_rejects_invalid_domain(self):
+        unauthorized = self.client.post(
+            "/website-blocker/block",
+            data={"domain": "example.com", "include_www": "yes"},
+        )
+        self.assertEqual(unauthorized.status_code, 403)
+        self.assertIn(b"explicitly administer", unauthorized.data)
+        self.assertEqual(self.hosts_path.read_bytes(), self.original_hosts)
+
+        invalid = self.client.post(
+            "/website-blocker/block",
+            data={"domain": "127.0.0.1 example.com", "authorized": "yes"},
+        )
+        self.assertEqual(invalid.status_code, 400)
+        self.assertIn(b"one domain only", invalid.data)
+        self.assertEqual(self.hosts_path.read_bytes(), self.original_hosts)
+
+    def test_website_block_and_unblock_use_post_redirect_get(self):
+        blocked = self.client.post(
+            "/website-blocker/block",
+            data={"domain": "https://Example.com/path", "include_www": "yes", "authorized": "yes"},
+            follow_redirects=False,
+        )
+        self.assertEqual(blocked.status_code, 303)
+        self.assertIn("/website-blocker?", blocked.headers["Location"])
+        content = self.hosts_path.read_text(encoding="utf-8")
+        self.assertIn("127.0.0.1 example.com", content)
+        self.assertIn("127.0.0.1 www.example.com", content)
+
+        unblocked = self.client.post(
+            "/website-blocker/unblock",
+            data={"domain": "example.com", "include_www": "yes", "authorized": "yes"},
+            follow_redirects=False,
+        )
+        self.assertEqual(unblocked.status_code, 303)
+        self.assertIn("/website-blocker/list?", unblocked.headers["Location"])
+        updated = self.hosts_path.read_text(encoding="utf-8")
+        self.assertNotIn("127.0.0.1 example.com", updated)
+        self.assertNotIn("127.0.0.1 www.example.com", updated)
+
+    def test_http_request_cannot_override_hosts_or_backup_paths(self):
+        decoy = self.test_root / "decoy-hosts"
+        decoy.write_bytes(b"must remain unchanged")
+        response = self.client.post(
+            "/website-blocker/block",
+            data={
+                "domain": "example.com",
+                "authorized": "yes",
+                "hosts_path": str(decoy),
+                "backup_path": str(self.test_root / "attacker-chosen-backup"),
+            },
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(decoy.read_bytes(), b"must remain unchanged")
+        self.assertIn(b"127.0.0.1 example.com", self.hosts_path.read_bytes())
+
+    def test_cleanup_route_requires_authorization_and_is_transparent_noop(self):
+        denied = self.client.post("/website-blocker/cleanup-expired")
+        self.assertEqual(denied.status_code, 403)
+        allowed = self.client.post(
+            "/website-blocker/cleanup-expired",
+            data={"authorized": "yes"},
+            follow_redirects=False,
+        )
+        self.assertEqual(allowed.status_code, 303)
+        self.assertIn("temporary_blocking_not_enabled", allowed.headers["Location"])
+        self.assertEqual(self.hosts_path.read_bytes(), self.original_hosts)
 
 
 if __name__ == "__main__":

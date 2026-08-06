@@ -26,6 +26,12 @@ from services.report_generator import (
     report_path_for_scan_id,
 )
 from services.traffic_analyzer import DPIResultStore, MAX_DPI_RESULTS, analyze_traffic
+from services.website_blocker import (
+    DEFAULT_AUDIT_PATH,
+    DEFAULT_BACKUP_DIRECTORY,
+    WebsiteBlocker,
+)
+from services.blocklist_manager import WINDOWS_HOSTS_PATH
 
 
 BASE_DIRECTORY = Path(__file__).resolve().parent
@@ -38,10 +44,36 @@ def create_app(test_config: dict | None = None) -> Flask:
         MAX_CONTENT_LENGTH=16 * 1024,
         REPORTS_DIRECTORY=str(DEFAULT_REPORTS_DIRECTORY),
         MAX_DPI_RESULTS=MAX_DPI_RESULTS,
+        WEBSITE_BLOCKER_HOSTS_PATH=str(WINDOWS_HOSTS_PATH),
+        WEBSITE_BLOCKER_BACKUP_DIRECTORY=str(DEFAULT_BACKUP_DIRECTORY),
+        WEBSITE_BLOCKER_AUDIT_PATH=str(DEFAULT_AUDIT_PATH),
     )
     if test_config:
         app.config.update(test_config)
     app.extensions["dpi_results"] = DPIResultStore(app.config["MAX_DPI_RESULTS"])
+    app.extensions["website_blocker"] = WebsiteBlocker(
+        hosts_path=app.config["WEBSITE_BLOCKER_HOSTS_PATH"],
+        backup_directory=app.config["WEBSITE_BLOCKER_BACKUP_DIRECTORY"],
+        audit_path=app.config["WEBSITE_BLOCKER_AUDIT_PATH"],
+    )
+
+    website_status_messages = {
+        "blocked": "Domain blocked successfully.",
+        "already_blocked": "The requested domain entries were already blocked.",
+        "unblocked": "Domain unblocked successfully.",
+        "domain_not_blocked": "The requested domain was not blocked by Cybersential.",
+        "temporary_blocking_not_enabled": "Temporary blocking is not enabled; no expired entries require cleanup.",
+    }
+
+    def website_blocker_context(*, operation_result: dict | None = None) -> dict:
+        blocker: WebsiteBlocker = app.extensions["website_blocker"]
+        notice_code = request.args.get("status", "")
+        return {
+            "blocker_status": blocker.get_status(),
+            "operation_result": operation_result,
+            "status_message": website_status_messages.get(notice_code),
+            "audit_warning": request.args.get("audit_warning") == "1",
+        }
 
     @app.after_request
     def add_security_headers(response):
@@ -264,6 +296,65 @@ def create_app(test_config: dict | None = None) -> Flask:
             download_name=f"Cybersential_DPI_Report_{capture_id}.pdf",
             max_age=0,
         )
+
+    @app.get("/website-blocker")
+    def website_blocker_page():
+        return render_template("website_blocker.html", **website_blocker_context())
+
+    @app.post("/website-blocker/block")
+    def website_blocker_block():
+        blocker: WebsiteBlocker = app.extensions["website_blocker"]
+        result = blocker.block_domain(
+            request.form.get("domain", ""),
+            include_www=request.form.get("include_www") == "yes",
+            authorization_confirmed=request.form.get("authorized") == "yes",
+        )
+        if result["success"]:
+            status = result["error_code"] or "blocked"
+            return redirect(
+                url_for(
+                    "website_blocker_page",
+                    status=status,
+                    audit_warning="1" if result["warnings"] else "0",
+                ),
+                code=303,
+            )
+        return render_template("website_blocker.html", **website_blocker_context(operation_result=result)), result["status_code"]
+
+    @app.post("/website-blocker/unblock")
+    def website_blocker_unblock():
+        blocker: WebsiteBlocker = app.extensions["website_blocker"]
+        result = blocker.unblock_domain(
+            request.form.get("domain", ""),
+            include_www=request.form.get("include_www") == "yes",
+            authorization_confirmed=request.form.get("authorized") == "yes",
+        )
+        if result["success"]:
+            status = result["error_code"] or "unblocked"
+            return redirect(
+                url_for(
+                    "website_blocker_list",
+                    status=status,
+                    audit_warning="1" if result["warnings"] else "0",
+                ),
+                code=303,
+            )
+        return render_template("blocked_sites.html", **website_blocker_context(operation_result=result)), result["status_code"]
+
+    @app.get("/website-blocker/list")
+    def website_blocker_list():
+        return render_template("blocked_sites.html", **website_blocker_context())
+
+    @app.post("/website-blocker/cleanup-expired")
+    def website_blocker_cleanup_expired():
+        blocker: WebsiteBlocker = app.extensions["website_blocker"]
+        result = blocker.cleanup_expired(request.form.get("authorized") == "yes")
+        if result["success"]:
+            return redirect(
+                url_for("website_blocker_list", status=result["error_code"]),
+                code=303,
+            )
+        return render_template("blocked_sites.html", **website_blocker_context(operation_result=result)), result["status_code"]
 
     @app.get("/reports/<scan_id>/download")
     def download_report(scan_id: str):
