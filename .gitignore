@@ -4,3 +4,4 @@ __pycache__
 reports/*.pdf
 data/backups/
 data/website_blocking_audit.jsonl
+Cybersential_Final_Fix_Prompt.md
