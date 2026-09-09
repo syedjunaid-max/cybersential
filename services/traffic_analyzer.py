@@ -256,6 +256,8 @@ def analyze_traffic(
     authorization_confirmed: bool = False,
     started_at: str = "",
     completed_at: str = "",
+    capture_mode: str = "Bounded Capture",
+    total_packets_observed: int | None = None,
 ) -> dict[str, Any]:
     """Create a serializable assessment from approved packet metadata dictionaries."""
     safe_packets = [packet for packet in (packets or []) if isinstance(packet, dict)]
@@ -322,12 +324,15 @@ def analyze_traffic(
         "assessed_at": completed_at or datetime.now(timezone.utc).isoformat(),
         "authorization_confirmed": bool(authorization_confirmed),
         "capture": {
+            "capture_mode": capture_mode,
             "selected_interface": str(selected_interface)[:120],
             "requested_duration_seconds": int(requested_duration_seconds),
             "actual_duration_seconds": summary["capture_duration_seconds"],
             "packet_limit": int(packet_limit),
             "started_at": started_at,
             "completed_at": completed_at,
+            "total_packets_observed": total_packets if total_packets_observed is None else total_packets_observed,
+            "packets_analyzed": total_packets,
             "pcap_storage_enabled": False,
             "raw_payload_storage_enabled": False,
             "message": (

@@ -388,15 +388,21 @@ def generate_dpi_report(
     metadata = [
         [_paragraph("Assessment", header), _paragraph(PROJECT_NAME, header)],
         [_paragraph("Capture ID", cell), _paragraph(canonical_capture_id, cell)],
-        [_paragraph("Assessment date and time", cell), _paragraph(assessment.get("assessed_at"), cell)],
+        [_paragraph("Capture mode", cell), _paragraph(capture.get("capture_mode", "Bounded Capture"), cell)],
+        [_paragraph("Assessment date and time", cell), _paragraph(str(assessment.get("assessed_at")), cell)],
         [_paragraph("Authorization", cell), _paragraph("Confirmed by the user", cell)],
-        [_paragraph("Selected interface", cell), _paragraph(capture.get("selected_interface"), cell)],
-        [_paragraph("Requested duration", cell), _paragraph(f"{capture.get('requested_duration_seconds', 0)} seconds", cell)],
-        [_paragraph("Observed duration", cell), _paragraph(f"{capture.get('actual_duration_seconds', 0)} seconds", cell)],
-        [_paragraph("Packet limit", cell), _paragraph(capture.get("packet_limit"), cell)],
-        [_paragraph("Packets observed", cell), _paragraph(summary.get("total_packets", 0), cell)],
-        [_paragraph("Storage", cell), _paragraph("PCAP disabled; raw payload storage disabled", cell)],
+        [_paragraph("Selected interface", cell), _paragraph(str(capture.get("selected_interface")), cell)],
     ]
+    if capture.get("started_at"):
+        metadata.append([_paragraph("Start time", cell), _paragraph(str(capture.get("started_at")), cell)])
+    if capture.get("completed_at"):
+        metadata.append([_paragraph("Completed time", cell), _paragraph(str(capture.get("completed_at")), cell)])
+    metadata.extend([
+        [_paragraph("Observed duration", cell), _paragraph(f"{capture.get('actual_duration_seconds', 0)} seconds", cell)],
+        [_paragraph("Total packets observed", cell), _paragraph(str(capture.get("total_packets_observed", summary.get("total_packets", 0))), cell)],
+        [_paragraph("Packets analyzed", cell), _paragraph(str(capture.get("packets_analyzed", summary.get("total_packets", 0))), cell)],
+        [_paragraph("Storage", cell), _paragraph("PCAP disabled; raw payload storage disabled", cell)],
+    ])
     metadata_table = Table(metadata, colWidths=[50 * mm, 120 * mm], hAlign="LEFT")
     metadata_table.setStyle(
         TableStyle(

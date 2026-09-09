@@ -210,6 +210,7 @@ def create_app(test_config: dict | None = None) -> Flask:
                 authorization_confirmed=True,
                 started_at=capture["started_at"],
                 completed_at=capture["completed_at"],
+                capture_mode="Bounded Capture",
             )
         except Exception:
             app.logger.exception("The captured metadata could not be summarized safely.")
@@ -294,8 +295,72 @@ def create_app(test_config: dict | None = None) -> Flask:
     @app.post("/dpi/live/stop")
     def dpi_live_stop():
         manager = current_app.extensions["live_capture_manager"]
+        # Stop the live capture and retrieve finalized session metadata
         manager.stop()
-        return {"status": "stopped"}, 200
+        session = manager.finalized_session()
+        # Prepare parameters for traffic analysis
+        packet_metadata = session.get("packet_metadata", [])
+        interface = session.get("interface_name") or session.get("interface_id") or "Live Capture Interface"
+        started_at = session.get("started_at") or ""
+        completed_at = session.get("completed_at") or ""
+        stats = session.get("stats") or {}
+        total_packets_observed = stats.get("total_packets", len(packet_metadata))
+
+        # Compute duration in seconds if timestamps are available
+        try:
+            if started_at and completed_at:
+                start_dt = datetime.fromisoformat(started_at) if isinstance(started_at, str) else started_at
+                end_dt = datetime.fromisoformat(completed_at) if isinstance(completed_at, str) else completed_at
+                capture_duration_seconds = max(0.0, (end_dt - start_dt).total_seconds())
+            else:
+                capture_duration_seconds = 0.0
+        except Exception:
+            capture_duration_seconds = 0.0
+
+        # Run analysis on the captured metadata
+        try:
+            assessment = analyze_traffic(
+                packet_metadata,
+                selected_interface=interface,
+                capture_duration_seconds=capture_duration_seconds,
+                requested_duration_seconds=0,
+                packet_limit=len(packet_metadata),
+                authorization_confirmed=True,
+                started_at=started_at,
+                completed_at=completed_at,
+                capture_mode="Live Capture",
+                total_packets_observed=total_packets_observed,
+            )
+        except Exception:
+            app.logger.exception("Failed to analyze live capture metadata.")
+            return {"error": "analysis_failed", "message": "The live capture completed but could not be analyzed."}, 500
+
+        # Generate PDF report for the assessment
+        capture_id = str(uuid.uuid4())
+        assessment["capture_id"] = capture_id
+        report_available = False
+        try:
+            generate_dpi_report(
+                assessment=assessment,
+                authorization_confirmed=True,
+                reports_directory=app.config["REPORTS_DIRECTORY"],
+                capture_id=capture_id,
+            )
+            assessment["report_available"] = True
+            report_available = True
+        except Exception:
+            app.logger.exception("The DPI PDF report for live capture could not be generated.")
+            assessment["report_error"] = "The traffic analysis completed, but its PDF report could not be generated."
+
+        # Store the result in existing DPI result store
+        current_app.extensions["dpi_results"].add(assessment, capture_id)
+
+        return {
+            "status": "stopped",
+            "capture_id": capture_id,
+            "result_url": url_for("dpi_result", capture_id=capture_id),
+            "report_available": report_available,
+        }, 200
 
     @app.get("/dpi/live/status")
     def dpi_live_status():

@@ -2,6 +2,7 @@ import threading
 import time
 from collections import deque
 from typing import Deque, Dict, List, Optional
+from datetime import datetime
 
 try:
     from scapy.all import AsyncSniffer, conf, sniff
@@ -51,7 +52,11 @@ class LiveCaptureManager:
             "total_bytes": 0,
         }
         self._interface_id: Optional[str] = None
+        self._interface_name: Optional[str] = None
         self._error: Optional[Dict] = None
+        self._session_metadata: Deque[Dict] = deque(maxlen=1000)
+        self._started_at: Optional[datetime] = None
+        self._completed_at: Optional[datetime] = None
 
     def _packet_callback(self, packet):
         try:
@@ -61,6 +66,7 @@ class LiveCaptureManager:
             return
         with self._lock:
             self._events.append(meta)
+            self._session_metadata.append(meta)
             self._stats["total_packets"] += 1
             proto = meta.get("transport_protocol", "Other")
             if proto == "TCP":
@@ -96,7 +102,12 @@ class LiveCaptureManager:
                 raise _capture_error(exc) from exc
             self._running = True
             self._interface_id = interface_name
+            self._interface_name = record["name"]
             self._error = None
+            self._started_at = datetime.now()
+            self._completed_at = None
+            self._session_metadata.clear()
+            self._stats = {"total_packets": 0, "tcp": 0, "udp": 0, "icmp": 0, "other": 0, "total_bytes": 0}
 
     def stop(self) -> None:
         """Stop the live capture, if running."""
@@ -110,7 +121,7 @@ class LiveCaptureManager:
             finally:
                 self._sniffer = None
                 self._running = False
-                self._interface_id = None
+                self._completed_at = datetime.now()
 
     def status(self) -> Dict:
         with self._lock:
@@ -127,3 +138,17 @@ class LiveCaptureManager:
     def stats(self) -> Dict:
         with self._lock:
             return dict(self._stats)
+
+    def finalized_session(self) -> Dict:
+        """Return a copy of the completed capture session metadata."""
+        with self._lock:
+            return {
+                "interface_id": self._interface_id,
+                "interface_name": self._interface_name or self._interface_id,
+                "started_at": self._started_at.isoformat() if self._started_at else None,
+                "completed_at": self._completed_at.isoformat() if self._completed_at else None,
+                "packet_metadata": list(self._session_metadata),
+                "stats": dict(self._stats),
+            }
+
+

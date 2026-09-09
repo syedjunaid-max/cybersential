@@ -27,11 +27,18 @@
         </section>
 
         <dl class="metadata-grid dpi-metadata-grid">
-            <div><dt>Assessment time</dt><dd>{{ assessment['assessed_at'] }}</dd></div>
-            <div><dt>Authorization</dt><dd><span class="badge severity-low">Confirmed</span></dd></div>
+            <div><dt>Capture Mode</dt><dd>{{ assessment['capture'].get('capture_mode', 'Bounded Capture') }}</dd></div>
             <div><dt>Interface</dt><dd>{{ assessment['capture']['selected_interface'] }}</dd></div>
-            <div><dt>Observed duration</dt><dd>{{ assessment['capture']['actual_duration_seconds'] }} seconds</dd></div>
-            <div><dt>Packet limit</dt><dd>{{ assessment['capture']['packet_limit'] }}</dd></div>
+            {% if assessment['capture'].get('started_at') %}
+            <div><dt>Start Time</dt><dd>{{ assessment['capture']['started_at'] }}</dd></div>
+            {% endif %}
+            {% if assessment['capture'].get('completed_at') %}
+            <div><dt>Completed Time</dt><dd>{{ assessment['capture']['completed_at'] }}</dd></div>
+            {% endif %}
+            <div><dt>Duration</dt><dd>{{ assessment['capture']['actual_duration_seconds'] }} seconds</dd></div>
+            <div><dt>Total Packets Observed</dt><dd>{{ assessment['capture'].get('total_packets_observed', assessment['summary']['total_packets']) }}</dd></div>
+            <div><dt>Packets Analyzed</dt><dd>{{ assessment['capture'].get('packets_analyzed', assessment['summary']['total_packets']) }}</dd></div>
+            <div><dt>Authorization</dt><dd><span class="badge severity-low">Confirmed</span></dd></div>
             <div><dt>PCAP storage</dt><dd>Disabled</dd></div>
             <div><dt>Raw payload storage</dt><dd>Disabled</dd></div>
         </dl>

@@ -30,6 +30,7 @@ from services.packet_inspector import (
     validate_capture_request,
 )
 from services.traffic_analyzer import DPIResultStore, analyze_traffic
+from services.live_capture_manager import LiveCaptureManager
 from services.port_scanner import NMAP_ARGUMENTS, PORT_RANGE, scan_tcp_ports
 from services.reconnaissance import (
     TargetValidationError,
@@ -606,6 +607,74 @@ class ReportGeneratorTests(unittest.TestCase):
         self.assertTrue(report_bytes.startswith(b"%PDF"))
         self.assertNotIn(b"NeverStoreMe1!", report_bytes)
         self.assertNotIn(b"Authorization: Bearer", report_bytes)
+
+
+class LiveCaptureManagerTests(unittest.TestCase):
+    def setUp(self):
+        self.manager = LiveCaptureManager()
+        with self.manager._lock:
+            self.manager._running = False
+            self.manager._sniffer = None
+            self.manager._events.clear()
+            self.manager._session_metadata.clear()
+            self.manager._stats = {"total_packets": 0, "tcp": 0, "udp": 0, "icmp": 0, "other": 0, "total_bytes": 0}
+            self.manager._interface_id = None
+            self.manager._interface_name = None
+            self.manager._started_at = None
+            self.manager._completed_at = None
+            self.manager._error = None
+
+    def test_live_capture_manager_is_singleton(self):
+        manager2 = LiveCaptureManager()
+        self.assertIs(self.manager, manager2)
+
+    def test_packet_callback_stores_bounded_metadata_and_stats(self):
+        sample_meta = {
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "ip_version": 4,
+            "source_ip": "192.0.2.1",
+            "destination_ip": "198.51.100.1",
+            "transport_protocol": "TCP",
+            "source_port": 12345,
+            "destination_port": 443,
+            "packet_length": 100,
+        }
+        with patch("services.live_capture_manager.extract_packet_metadata", return_value=sample_meta):
+            self.manager._packet_callback(object())
+
+        stats = self.manager.stats()
+        self.assertEqual(stats["total_packets"], 1)
+        self.assertEqual(stats["tcp"], 1)
+        self.assertEqual(stats["total_bytes"], 100)
+
+        events = self.manager.recent_events(10)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["transport_protocol"], "TCP")
+
+        session = self.manager.finalized_session()
+        self.assertEqual(len(session["packet_metadata"]), 1)
+        self.assertEqual(session["packet_metadata"][0]["destination_port"], 443)
+
+    def test_finalized_session_preserves_data_on_stop(self):
+        with self.manager._lock:
+            self.manager._running = True
+            self.manager._interface_id = "test-iface"
+            self.manager._interface_name = "Test Interface"
+            self.manager._started_at = datetime.now()
+            self.manager._session_metadata.append({"transport_protocol": "UDP", "packet_length": 50})
+            self.manager._stats["total_packets"] = 1
+            self.manager._stats["udp"] = 1
+
+        self.manager.stop()
+        self.assertFalse(self.manager.status()["running"])
+
+        finalized = self.manager.finalized_session()
+        self.assertEqual(finalized["interface_id"], "test-iface")
+        self.assertEqual(finalized["interface_name"], "Test Interface")
+        self.assertIsNotNone(finalized["started_at"])
+        self.assertIsNotNone(finalized["completed_at"])
+        self.assertEqual(len(finalized["packet_metadata"]), 1)
+        self.assertEqual(finalized["stats"]["total_packets"], 1)
 
 
 if __name__ == "__main__":

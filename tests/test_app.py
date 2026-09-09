@@ -206,6 +206,65 @@ class FlaskApplicationTests(unittest.TestCase):
         report_path.write_bytes(b"%PDF-1.4 test")
         self.assertEqual(self.client.get(f"/dpi/reports/{capture_id}/download").status_code, 404)
 
+    def test_dpi_live_page_renders_cleanly(self):
+        environment = {
+            "available": True,
+            "code": "ready",
+            "message": "Capture ready",
+            "interfaces": [{"id": "iface-1", "name": "Wi-Fi", "address": "192.168.1.5", "description": ""}],
+            "privilege_notice": "Standard notice",
+        }
+        with patch("app.get_capture_environment", return_value=environment):
+            response = self.client.get("/dpi/live")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Live Deep Packet Inspection", response.data)
+        self.assertIn(b"Wi-Fi", response.data)
+
+    def test_dpi_live_start_requires_authorization(self):
+        response = self.client.post("/dpi/live/start", data={"interface": "iface-1"})
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_json(), {"error": "authorization_required"})
+
+    def test_dpi_live_stop_finalizes_analyzes_and_returns_json(self):
+        capture_id = "98765432-1234-5678-1234-567812345678"
+        sample_session = {
+            "interface_id": "iface-1",
+            "interface_name": "Wi-Fi",
+            "started_at": "2026-01-01T00:00:00",
+            "completed_at": "2026-01-01T00:00:05",
+            "packet_metadata": [
+                {
+                    "timestamp": "2026-01-01T00:00:01",
+                    "ip_version": 4,
+                    "source_ip": "192.0.2.1",
+                    "destination_ip": "198.51.100.1",
+                    "transport_protocol": "TCP",
+                    "source_port": 1234,
+                    "destination_port": 443,
+                    "packet_length": 80,
+                }
+            ],
+            "stats": {"total_packets": 1, "tcp": 1, "udp": 0, "icmp": 0, "other": 0, "total_bytes": 80},
+        }
+
+        manager = self.app.extensions["live_capture_manager"]
+        with patch.object(manager, "stop"), patch.object(manager, "finalized_session", return_value=sample_session), patch(
+            "app.uuid.uuid4", return_value=capture_id
+        ), patch("app.generate_dpi_report", return_value={"path": "ignored"}):
+            response = self.client.post("/dpi/live/stop")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["status"], "stopped")
+        self.assertEqual(data["capture_id"], capture_id)
+        self.assertEqual(data["result_url"], f"/dpi/result/{capture_id}")
+        self.assertTrue(data["report_available"])
+
+        result_resp = self.client.get(f"/dpi/result/{capture_id}")
+        self.assertEqual(result_resp.status_code, 200)
+        self.assertIn(b"Live Capture", result_resp.data)
+        self.assertIn(b"Wi-Fi", result_resp.data)
+
 
 if __name__ == "__main__":
     unittest.main()
