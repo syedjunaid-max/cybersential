@@ -5,3 +5,5 @@ reports/*.pdf
 data/backups/
 data/website_blocking_audit.jsonl
 Cybersential_Final_Fix_Prompt.md
+
+cybersential_threat_detection_engine.md

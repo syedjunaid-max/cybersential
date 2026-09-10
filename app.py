@@ -18,6 +18,7 @@ from services.packet_inspector import (
     get_capture_environment,
 )
 from services.live_capture_manager import LiveCaptureManager
+from services.threat_detector import detect_threats
 from services.port_scanner import scan_tcp_ports
 from services.reconnaissance import TargetValidationError, normalize_assessment_target, perform_reconnaissance
 from services.report_generator import (
@@ -212,6 +213,10 @@ def create_app(test_config: dict | None = None) -> Flask:
                 completed_at=capture["completed_at"],
                 capture_mode="Bounded Capture",
             )
+            # Run threat detection and extend findings and store threat summary separately
+            threat_data = detect_threats(assessment)
+            assessment.setdefault("findings", []).extend(threat_data.get("findings", []))
+            assessment["threat_summary"] = threat_data.get("threat_summary")
         except Exception:
             app.logger.exception("The captured metadata could not be summarized safely.")
             return (
@@ -331,6 +336,10 @@ def create_app(test_config: dict | None = None) -> Flask:
                 capture_mode="Live Capture",
                 total_packets_observed=total_packets_observed,
             )
+            # Run threat detection and extend findings and store threat summary separately for live capture
+            threat_data = detect_threats(assessment)
+            assessment.setdefault("findings", []).extend(threat_data.get("findings", []))
+            assessment["threat_summary"] = threat_data.get("threat_summary")
         except Exception:
             app.logger.exception("Failed to analyze live capture metadata.")
             return {"error": "analysis_failed", "message": "The live capture completed but could not be analyzed."}, 500

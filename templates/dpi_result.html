@@ -83,6 +83,23 @@
             <p class="field-help">{{ assessment['summary']['encryption_estimate']['basis'] }}</p>
         </section>
 
+        <!-- Threat Detection Summary -->
+        <section class="result-section" aria-labelledby="threat-heading">
+            <div class="section-heading">
+                <span class="step-number">03</span>
+                <div><h2 id="threat-heading">Threat Detection Summary</h2></div>
+            </div>
+            <dl class="metadata-grid dpi-metadata-grid">
+                <div><dt>Total Findings</dt><dd>{{ assessment['threat_summary']['total_findings'] }}</dd></div>
+                <div><dt>High</dt><dd>{{ assessment['threat_summary']['high'] }}</dd></div>
+                <div><dt>Medium</dt><dd>{{ assessment['threat_summary']['medium'] }}</dd></div>
+                <div><dt>Low</dt><dd>{{ assessment['threat_summary']['low'] }}</dd></div>
+                <div><dt>Overall Risk</dt><dd>{{ assessment['threat_summary']['overall_risk'] }}</dd></div>
+            </dl>
+        </section>
+
+        <section class="result-section" aria-labelledby="endpoint-heading">
+
         <section class="result-section" aria-labelledby="endpoint-heading">
             <div class="section-heading">
                 <span class="step-number">03</span>
@@ -146,17 +163,18 @@
                 <div><h2 id="findings-heading">Rule-based findings</h2><p>Every finding is tentative and must be interpreted in context.</p></div>
             </div>
             <div class="finding-list">
-                {% for finding in assessment['findings'] %}
+                {% for threat in assessment['findings'] if threat.get('threat_type') %}
                 <article class="finding-card finding-card-stacked">
-                    <span class="badge severity-{{ finding['severity']|lower }}">{{ finding['severity'] }}</span>
+                    <span class="badge severity-{{ threat['risk_level']|lower }}">{{ threat['risk_level'] }}</span>
                     <div>
-                        <h3>{{ finding['title'] }}</h3>
-                        <p><strong>Evidence:</strong> {{ finding['evidence'] }}</p>
-                        <p><strong>Recommendation:</strong> {{ finding['recommendation'] }}</p>
-                        <p><strong>Confidence / limitation:</strong> {{ finding['confidence'] }}</p>
+                        <h3>{{ threat['threat_type'] }}</h3>
+                        <p><strong>Detection Reason:</strong> {{ threat['detection_reason'] }}</p>
+                        <p><strong>Evidence Summary:</strong> {{ threat['evidence_summary'] }}</p>
+                        <p><strong>Recommendation:</strong> {{ threat['recommendation'] }}</p>
+                        <p><strong>Confidence:</strong> {{ threat['confidence'] }}</p>
                     </div>
                 </article>
-                {% else %}<p class="empty-state">No configured anomaly threshold was reached. This does not prove that the traffic or network is secure.</p>{% endfor %}
+                {% else %}<p class="empty-state">No threat detections were identified.</p>{% endfor %}
             </div>
         </section>
 
