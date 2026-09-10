@@ -608,6 +608,31 @@ class ReportGeneratorTests(unittest.TestCase):
         self.assertNotIn(b"NeverStoreMe1!", report_bytes)
         self.assertNotIn(b"Authorization: Bearer", report_bytes)
 
+        import base64, zlib
+        streams_text = ""
+        pos = 0
+        while True:
+            s_idx = report_bytes.find(b"stream", pos)
+            if s_idx == -1:
+                break
+            e_idx = report_bytes.find(b"endstream", s_idx)
+            raw = report_bytes[s_idx + 6 : e_idx].strip()
+            if not raw.startswith(b"<~"):
+                raw = b"<~" + raw
+            if not raw.endswith(b"~>"):
+                raw = raw + b"~>"
+            try:
+                decoded = base64.a85decode(raw, adobe=True)
+                streams_text += zlib.decompress(decoded).decode("latin1", errors="ignore")
+            except Exception:
+                pass
+            pos = e_idx + 9
+
+        self.assertIn("Rule-Based Findings", streams_text)
+        self.assertNotIn("\u2011", streams_text)
+        self.assertIn("Start Time", streams_text)
+        self.assertIn("End Time", streams_text)
+
 
 class LiveCaptureManagerTests(unittest.TestCase):
     def setUp(self):

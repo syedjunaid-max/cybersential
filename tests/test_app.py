@@ -3,7 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from app import create_app
 from services.packet_inspector import PacketInspectionError
@@ -264,7 +264,84 @@ class FlaskApplicationTests(unittest.TestCase):
         self.assertEqual(result_resp.status_code, 200)
         self.assertIn(b"Live Capture", result_resp.data)
         self.assertIn(b"Wi-Fi", result_resp.data)
+        self.assertIn(b"2026-01-01T00:00:00", result_resp.data)
+        self.assertIn(b"2026-01-01T00:00:05", result_resp.data)
+
+    def test_dpi_live_workflow_full_start_stop_result_pdf(self):
+        import base64, zlib
+        interface_record = [{"id": "iface-1", "name": "Ethernet", "capture_name": "Ethernet", "address": "192.168.1.10", "description": ""}]
+        with patch("services.live_capture_manager.AsyncSniffer") as mock_sniffer_cls, patch(
+            "services.packet_inspector._interface_records", return_value=interface_record
+        ):
+            mock_sniffer = MagicMock()
+            mock_sniffer_cls.return_value = mock_sniffer
+            start_resp = self.client.post("/dpi/live/start", data={"interface": "iface-1", "authorized": "yes"})
+            self.assertEqual(start_resp.status_code, 200)
+
+            manager = self.app.extensions["live_capture_manager"]
+            with manager._lock:
+                manager._session_metadata.append({
+                    "timestamp": "2026-01-01T00:00:01+00:00",
+                    "ip_version": 4,
+                    "source_ip": "192.168.1.10",
+                    "destination_ip": "93.184.216.34",
+                    "transport_protocol": "TCP",
+                    "source_port": 54321,
+                    "destination_port": 443,
+                    "packet_length": 64,
+                })
+                manager._stats["total_packets"] += 1
+                manager._stats["tcp"] += 1
+                manager._stats["total_bytes"] += 64
+
+            # 2. Stop live capture
+            stop_resp = self.client.post("/dpi/live/stop")
+            self.assertEqual(stop_resp.status_code, 200)
+            data = stop_resp.get_json()
+            self.assertEqual(data["status"], "stopped")
+            self.assertTrue(data["report_available"])
+            capture_id = data["capture_id"]
+
+            # 3. View Result page
+            result_resp = self.client.get(data["result_url"])
+            self.assertEqual(result_resp.status_code, 200)
+            self.assertIn(b"Start Time", result_resp.data)
+            self.assertIn(b"Completed Time", result_resp.data)
+
+            # 4. Download and inspect PDF
+            pdf_resp = self.client.get(f"/dpi/reports/{capture_id}/download")
+            self.assertEqual(pdf_resp.status_code, 200)
+            pdf_bytes = pdf_resp.data
+            pdf_resp.close()
+            self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+
+            # Extract streams from PDF
+            streams_text = ""
+            pos = 0
+            while True:
+                s_idx = pdf_bytes.find(b"stream", pos)
+                if s_idx == -1:
+                    break
+                e_idx = pdf_bytes.find(b"endstream", s_idx)
+                raw = pdf_bytes[s_idx + 6 : e_idx].strip()
+                if not raw.startswith(b"<~"):
+                    raw = b"<~" + raw
+                if not raw.endswith(b"~>"):
+                    raw = raw + b"~>"
+                try:
+                    decoded = base64.a85decode(raw, adobe=True)
+                    streams_text += zlib.decompress(decoded).decode("latin1", errors="ignore")
+                except Exception:
+                    pass
+                pos = e_idx + 9
+
+            self.assertIn("Rule-Based Findings", streams_text)
+            self.assertNotIn("\u2011", streams_text)
+            self.assertIn("Start Time", streams_text)
+            self.assertIn("End Time", streams_text)
+            self.assertNotIn("Unavailable", streams_text)
 
 
 if __name__ == "__main__":
     unittest.main()
+

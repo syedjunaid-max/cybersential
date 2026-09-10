@@ -220,8 +220,8 @@ def generate_dpi_report(
     story.append(Paragraph("1. Capture Metadata", style["heading"]))
     meta_rows = [
         [_paragraph("Capture ID", header), _paragraph(str(canonical_capture_id), cell)],
-        [_paragraph("Start Time", header), _paragraph(capture.get("started_at", "Unavailable"), cell)],
-        [_paragraph("End Time", header), _paragraph(capture.get("ended_at", "Unavailable"), cell)],
+        [_paragraph("Start Time", header), _paragraph(capture.get("started_at") or "Unavailable", cell)],
+        [_paragraph("End Time", header), _paragraph(capture.get("completed_at") or capture.get("ended_at") or "Unavailable", cell)],
     ]
     story.append(_table(meta_rows, [45 * mm, 125 * mm]))
 
@@ -292,10 +292,10 @@ def generate_dpi_report(
         story.append(_table(finding_rows, [30 * mm, 20 * mm, 45 * mm, 45 * mm, 40 * mm]))
 
     # -------------------------------------------------------------------
-    # Rule‑based findings – re‑use existing assessment data
+    # Rule-based findings - re-use existing assessment data
     # -------------------------------------------------------------------
     story.append(PageBreak())
-    story.append(Paragraph("5. Rule‑Based Findings", style["heading"]))
+    story.append(Paragraph("5. Rule-Based Findings", style["heading"]))
     finding_rows = [[_paragraph("Severity / finding", header), _paragraph("Evidence", header), _paragraph("Recommendation and limitation", header)]]
     for finding in assessment.get("findings") or []:
         finding_rows.append(
