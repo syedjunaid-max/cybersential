@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Attack Surface Mapping</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="container header-inner">
+            <a class="brand" href="{{ url_for('home') }}">Cybersential</a>
+            <nav class="header-nav" aria-label="Primary navigation">
+                <a href="{{ url_for('home') }}">Assessment tools</a>
+                <a href="{{ url_for('dpi') }}">Deep Packet Inspection</a>
+                <a href="{{ url_for('attack_surface_form') }}">Attack Surface Mapping</a>
+            </nav>
+        </div>
+    </header>
+    <main class="container page-shell">
+        <h1>Attack Surface Mapping</h1>
+        <p>Enter the target URL or hostname you wish to assess.</p>
+        <form action="{{ url_for('attack_surface_analyze') }}" method="post">
+            <label for="target">Target URL/Hostname:</label>
+            <input type="text" name="target" id="target" placeholder="example.com" required />
+            <br/>
+            <label>
+                <input type="checkbox" name="authorized" value="on" required />
+                I confirm I am authorized to assess this target.
+            </label>
+            <br/>
+            <button type="submit" class="button button-primary">Run Assessment</button>
+        </form>
+    </main>
+</body>
+</html>

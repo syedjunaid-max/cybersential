@@ -39,7 +39,9 @@ from services.reconnaissance import (
     normalize_target,
 )
 from services.report_generator import (
+    asm_report_path_for_scan_id,
     dpi_report_path_for_capture_id,
+    generate_asm_report,
     generate_assessment_report,
     generate_dpi_report,
     report_path_for_scan_id,
@@ -632,6 +634,82 @@ class ReportGeneratorTests(unittest.TestCase):
         self.assertNotIn("\u2011", streams_text)
         self.assertIn("Start Time", streams_text)
         self.assertIn("End Time", streams_text)
+
+    def test_generates_asm_pdf_with_expected_sections(self):
+        scan_id = "11111111-2222-3333-4444-555555555555"
+        assessment = {
+            "target": "example.com",
+            "normalized_target": "https://example.com",
+            "assessed_at": "2026-01-01T00:00:00+00:00",
+            "attack_surface": {
+                "summary": {
+                    "overall_exposure": "Medium",
+                    "total_findings": 3,
+                    "high": 1,
+                    "medium": 1,
+                    "low": 1,
+                },
+                "dns_addresses": [
+                    {"address": "93.184.216.34", "version": "IPv4", "reverse_dns": "example.com"},
+                ],
+                "whois": {
+                    "registrar": "Example Registrar",
+                    "organization": "Example Org",
+                    "country": "US",
+                    "name_servers": "ns1.example.com",
+                    "creation_date": "1995-09-03",
+                    "expiration_date": "2026-09-03",
+                },
+                "open_ports": [
+                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http", "product_version": "nginx"},
+                    {"port": 443, "protocol": "tcp", "state": "open", "service": "https", "product_version": "nginx"},
+                ],
+                "https_supported": True,
+                "missing_headers": ["Content-Security-Policy", "X-Frame-Options"],
+                "header_findings": [
+                    {
+                        "name": "Content-Security-Policy",
+                        "status": "Missing",
+                        "severity": "High",
+                        "value": "Not supplied",
+                        "recommendation": "Configure CSP",
+                    },
+                ],
+                "observations": [
+                    {
+                        "title": "Missing CSP Header",
+                        "severity": "High",
+                        "description": "CSP is missing",
+                        "evidence": "Header not present",
+                        "recommendation": "Add header",
+                        "limitation": "Static header check only",
+                    }
+                ],
+            },
+        }
+        result = generate_asm_report(
+            assessment=assessment,
+            authorization_confirmed=True,
+            reports_directory=self.reports_directory,
+            scan_id=scan_id,
+        )
+        report_path = Path(result["path"])
+        self.assertTrue(report_path.is_file())
+        self.assertEqual(report_path, asm_report_path_for_scan_id(scan_id, self.reports_directory))
+        report_bytes = report_path.read_bytes()
+        self.assertTrue(report_bytes.startswith(b"%PDF"))
+
+    def test_asm_report_refuses_unauthorized_and_invalid_id(self):
+        assessment = {"target": "example.com", "attack_surface": {}}
+        with self.assertRaises(ValueError):
+            generate_asm_report(
+                assessment=assessment,
+                authorization_confirmed=False,
+                reports_directory=self.reports_directory,
+                scan_id="11111111-2222-3333-4444-555555555555",
+            )
+        with self.assertRaises(ValueError):
+            asm_report_path_for_scan_id("../../secret", self.reports_directory)
 
 
 class LiveCaptureManagerTests(unittest.TestCase):

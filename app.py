@@ -21,8 +21,11 @@ from services.live_capture_manager import LiveCaptureManager
 from services.threat_detector import detect_threats
 from services.port_scanner import scan_tcp_ports
 from services.reconnaissance import TargetValidationError, normalize_assessment_target, perform_reconnaissance
+from services.attack_surface_mapper import map_attack_surface
 from services.report_generator import (
+    asm_report_path_for_scan_id,
     dpi_report_path_for_capture_id,
+    generate_asm_report,
     generate_assessment_report,
     generate_dpi_report,
     report_path_for_scan_id,
@@ -362,6 +365,7 @@ def create_app(test_config: dict | None = None) -> Flask:
             assessment["report_error"] = "The traffic analysis completed, but its PDF report could not be generated."
 
         # Store the result in existing DPI result store
+# Attack Surface Mapping routes moved to proper location
         current_app.extensions["dpi_results"].add(assessment, capture_id)
 
         return {
@@ -389,6 +393,114 @@ def create_app(test_config: dict | None = None) -> Flask:
                 yield f"event: update\ndata: {json.dumps(data)}\n\n"
                 time.sleep(1)
         return current_app.response_class(event_stream(), mimetype="text/event-stream")
+
+    @app.get("/attack-surface")
+    def attack_surface_form():
+        """Render a form to input a target URL/hostname for attack surface assessment.
+        The user must confirm they are authorized to assess the target.
+        """
+        return render_template("attack_surface.html")
+
+    @app.post("/attack-surface/analyze")
+    def attack_surface_analyze():
+        """Perform the full assessment workflow for the submitted target.
+        Workflow: authorization -> reconnaissance -> port scan -> header analysis ->
+        attack surface mapping. Results are stored in a dedicated ``asm_results``
+        extension to keep DPI data separate.
+        """
+        authorized = request.form.get("authorized") == "on"
+        if not authorized:
+            abort(403, description="Authorization not confirmed for target assessment.")
+        raw_target = request.form.get("target", "").strip()
+        if not raw_target:
+            abort(400, description="Target is required.")
+
+        # Normalize the target once so all services use a consistent host/URL.
+        try:
+            normalized = normalize_assessment_target(raw_target)
+        except TargetValidationError as exc:
+            abort(400, description=str(exc))
+
+        scan_host = normalized.scan_host
+        web_url = normalized.web_url
+
+        # Reconnaissance (DNS + WHOIS) — abort only on complete DNS failure.
+        recon_result = perform_reconnaissance(scan_host)
+        if not recon_result.get("success"):
+            abort(400, description="Reconnaissance failed: " + "; ".join(recon_result.get("errors", [])))
+
+        # Port scan — never abort; the mapper handles missing nmap gracefully.
+        port_result = scan_tcp_ports(scan_host)
+
+        # Header analysis — use the full web URL; fall back to HTTP if needed.
+        header_result = analyze_security_headers(
+            web_url, fallback_to_http=normalized.fallback_to_http
+        )
+
+        assessment = {
+            "target": raw_target,
+            "normalized_target": web_url,
+            "recon": recon_result,
+            "port_scan": port_result,
+            "header_analysis": header_result,
+        }
+
+        surface_data = map_attack_surface(assessment)
+        assessment["attack_surface"] = surface_data
+
+        scan_id = str(uuid.uuid4())
+        assessed_at = datetime.now().astimezone()
+        assessment["scan_id"] = scan_id
+        assessment["assessed_at"] = assessed_at.isoformat()
+
+        report_available = False
+        try:
+            generate_asm_report(
+                assessment=assessment,
+                authorization_confirmed=True,
+                reports_directory=app.config["REPORTS_DIRECTORY"],
+                scan_id=scan_id,
+            )
+            assessment["report_available"] = True
+        except Exception:
+            app.logger.exception("The Attack Surface PDF report could not be generated.")
+            assessment["report_error"] = "The assessment completed, but the PDF report could not be generated."
+
+        asm_store = current_app.extensions.setdefault("asm_results", {})
+        asm_store[scan_id] = assessment
+        return redirect(url_for("attack_surface_result", scan_id=scan_id), code=303)
+
+    @app.get("/attack-surface/result/<scan_id>")
+    def attack_surface_result(scan_id: str):
+        """Display the attack surface assessment results for a given scan ID.
+        The results are read from the ``asm_results`` store, isolated from DPI.
+        """
+        asm_store = current_app.extensions.get("asm_results", {})
+        assessment = asm_store.get(scan_id)
+        if not assessment or "attack_surface" not in assessment:
+            abort(404)
+        return render_template("attack_surface_result.html", assessment=assessment, scan_id=scan_id)
+
+    @app.get("/attack-surface/reports/<scan_id>/download")
+    def download_asm_report(scan_id: str):
+        """Securely serve generated Attack Surface Mapping PDF reports by scan ID."""
+        asm_store = current_app.extensions.get("asm_results", {})
+        assessment = asm_store.get(scan_id)
+        if assessment is None or not assessment.get("report_available"):
+            abort(404)
+        try:
+            report_path = asm_report_path_for_scan_id(scan_id, app.config["REPORTS_DIRECTORY"])
+        except ValueError:
+            abort(404)
+        if not report_path.is_file():
+            abort(404)
+        return send_from_directory(
+            report_path.parent,
+            report_path.name,
+            as_attachment=True,
+            download_name=f"Cybersential_ASM_Report_{scan_id}.pdf",
+            max_age=0,
+        )
 
     @app.get("/reports/<scan_id>/download")
     def download_report(scan_id: str):

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Attack Surface Results – Cybersential</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="container header-inner">
+            <a class="brand" href="{{ url_for('home') }}">Cybersential</a>
+            <nav class="header-nav" aria-label="Primary navigation">
+                <a href="{{ url_for('home') }}">Assessment tools</a>
+                <a href="{{ url_for('dpi') }}">Deep Packet Inspection</a>
+                <a href="{{ url_for('attack_surface_form') }}">Attack Surface Mapping</a>
+            </nav>
+        </div>
+    </header>
+    <main class="container page-shell results-page">
+        <section class="results-hero">
+            <div>
+                <p class="eyebrow">AUTHORIZED ATTACK SURFACE MAPPING</p>
+                <h1>{{ assessment.get('normalized_target') or assessment.get('target') }}</h1>
+                {% if scan_id %}<p>Scan ID <span class="monospace">{{ scan_id }}</span></p>{% endif %}
+            </div>
+            {% if assessment.get('report_available') and scan_id %}
+            <a class="button button-primary" href="{{ url_for('download_asm_report', scan_id=scan_id) }}">Download PDF report</a>
+            {% endif %}
+        </section>
+
+        {% if assessment.get('report_error') %}
+        <div class="alert alert-error" role="alert">{{ assessment.get('report_error') }}</div>
+        {% endif %}
+
+        {% set asm = assessment.get('attack_surface', {}) %}
+
+        {% if asm.get('summary') %}
+        <section>
+            <h2>Exposure Summary</h2>
+            <table>
+                <tr>
+                    <th>Overall Exposure</th>
+                    <td><strong>{{ asm['summary'].get('overall_exposure', 'Unknown') }}</strong></td>
+                </tr>
+                <tr>
+                    <th>Total Findings</th>
+                    <td>{{ asm['summary'].get('total_findings', 0) }}</td>
+                </tr>
+                <tr>
+                    <th>High</th>
+                    <td>{{ asm['summary'].get('high', 0) }}</td>
+                </tr>
+                <tr>
+                    <th>Medium</th>
+                    <td>{{ asm['summary'].get('medium', 0) }}</td>
+                </tr>
+                <tr>
+                    <th>Low</th>
+                    <td>{{ asm['summary'].get('low', 0) }}</td>
+                </tr>
+            </table>
+        </section>
+        {% endif %}
+
+        <section>
+            <h2>DNS / Reconnaissance</h2>
+            <ul>
+            {% for addr in asm.get('dns_addresses', []) %}
+                <li>{{ addr.get('address') }} ({{ addr.get('version') }}) — reverse DNS: {{ addr.get('reverse_dns', 'N/A') }}</li>
+            {% else %}
+                <li>No DNS addresses resolved.</li>
+            {% endfor %}
+            </ul>
+            {% set whois = asm.get('whois', {}) %}
+            {% if whois %}
+            <h3>WHOIS</h3>
+            <ul>
+                <li><strong>Registrar:</strong> {{ whois.get('registrar', 'N/A') }}</li>
+                <li><strong>Organisation:</strong> {{ whois.get('organization', 'N/A') }}</li>
+                <li><strong>Country:</strong> {{ whois.get('country', 'N/A') }}</li>
+                <li><strong>Name Servers:</strong> {{ whois.get('name_servers', 'N/A') }}</li>
+                <li><strong>Created:</strong> {{ whois.get('creation_date', 'N/A') }}</li>
+                <li><strong>Expires:</strong> {{ whois.get('expiration_date', 'N/A') }}</li>
+            </ul>
+            {% endif %}
+        </section>
+
+        <section>
+            <h2>Open Ports</h2>
+            <ul>
+            {% for port in asm.get('open_ports', []) %}
+                <li>Port {{ port.get('port') }}/{{ port.get('protocol', 'tcp') }} — {{ port.get('service', 'unknown') }}
+                    {% if port.get('product_version') and port.get('product_version') != 'Not detected' %}
+                        ({{ port.get('product_version') }})
+                    {% endif %}
+                </li>
+            {% else %}
+                <li>No open ports found in range 1–1024, or port scanning was unavailable.</li>
+            {% endfor %}
+            </ul>
+        </section>
+
+        <section>
+            <h2>Web Security Headers</h2>
+            <p>HTTPS Supported: <strong>{{ 'Yes' if asm.get('https_supported') else 'No' }}</strong></p>
+            {% if asm.get('header_findings') %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Header</th>
+                        <th>Status</th>
+                        <th>Severity</th>
+                        <th>Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for h in asm.get('header_findings', []) %}
+                    <tr>
+                        <td>{{ h.get('name') }}</td>
+                        <td>{{ h.get('status') }}</td>
+                        <td>{{ h.get('severity') }}</td>
+                        <td>{{ h.get('value', 'N/A') }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+                <p>No header analysis data — the target web service may be unreachable.</p>
+            {% endif %}
+        </section>
+
+        {% if asm.get('observations') %}
+        <section>
+            <h2>Observations</h2>
+            {% for obs in asm['observations'] %}
+            <article>
+                <h3>{{ obs.get('title') }} <small>[{{ obs.get('severity') }}]</small></h3>
+                <p>{{ obs.get('description') }}</p>
+                <p><em>Evidence:</em> {{ obs.get('evidence') }}</p>
+                <p><em>Recommendation:</em> {{ obs.get('recommendation') }}</p>
+                <p><small><em>Limitation: {{ obs.get('limitation') }}</em></small></p>
+            </article>
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        <section class="report-panel">
+            <div>
+                <h2>Attack Surface PDF Report</h2>
+                <p>The report includes target details, exposure summary, DNS/WHOIS reconnaissance, open ports, HTTPS status, security headers, observations, recommendations, and the educational-use disclaimer.</p>
+            </div>
+            {% if assessment.get('report_available') and scan_id %}
+            <a class="button button-primary" href="{{ url_for('download_asm_report', scan_id=scan_id) }}">Download PDF report</a>
+            {% endif %}
+        </section>
+
+        <a class="back-link" href="{{ url_for('attack_surface_form') }}">&larr; Run another attack surface analysis</a>
+    </main>
+
+    <footer class="site-footer"><div class="container">Cybersential &middot; Attack Surface Mapping &middot; Educational and authorized use only</div></footer>
+</body>
+</html>

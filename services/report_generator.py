@@ -28,6 +28,7 @@ from reportlab.platypus import (
 PROJECT_NAME = "Cybersential"
 REPORT_PREFIX = "cybersential_"
 DPI_REPORT_PREFIX = "cybersential_dpi_"
+ASM_REPORT_PREFIX = "cybersential_asm_"
 NAVY = colors.HexColor("#0F172A")
 SLATE = colors.HexColor("#334155")
 LIGHT_SLATE = colors.HexColor("#E2E8F0")
@@ -116,6 +117,13 @@ def dpi_report_path_for_capture_id(
 ) -> Path:
     directory = Path(reports_directory).resolve()
     return directory / f"{DPI_REPORT_PREFIX}{_canonical_scan_id(capture_id)}.pdf"
+
+
+def asm_report_path_for_scan_id(
+    scan_id: str | uuid.UUID, reports_directory: str | Path
+) -> Path:
+    directory = Path(reports_directory).resolve()
+    return directory / f"{ASM_REPORT_PREFIX}{_canonical_scan_id(scan_id)}.pdf"
 
 
 def _build_styles() -> dict[str, ParagraphStyle]:
@@ -475,6 +483,209 @@ def generate_assessment_report(
             temporary_path.unlink()
 
     return {
+        "filename": output_path.name,
+        "path": str(output_path),
+        "generated_at": assessed_at.isoformat(),
+    }
+
+
+def generate_asm_report(
+    *,
+    assessment: dict[str, Any],
+    authorization_confirmed: bool,
+    reports_directory: str | Path,
+    scan_id: str | uuid.UUID,
+) -> dict[str, str]:
+    """Generate an Attack Surface Mapping PDF report for authorized assessments."""
+    if not authorization_confirmed:
+        raise ValueError("An Attack Surface Mapping report can only be generated for an authorized assessment.")
+
+    canonical_scan_id = _canonical_scan_id(scan_id)
+    output_path = asm_report_path_for_scan_id(canonical_scan_id, reports_directory)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = output_path.with_suffix(".tmp")
+
+    style = _build_styles()
+    body, cell, header = style["body"], style["cell"], style["header"]
+    asm = assessment.get("attack_surface") or {}
+    summary = asm.get("summary") or {}
+
+    story: list[Any] = [
+        Spacer(1, 5 * mm),
+        Paragraph("Attack Surface Mapping Assessment", style["title"]),
+        Paragraph("External exposure and surface security assessment report.", body),
+        Spacer(1, 5 * mm),
+    ]
+
+    # 1. Target & Assessment Metadata
+    story.append(Paragraph("1. Target and Assessment Metadata", style["heading"]))
+    target = assessment.get("normalized_target") or assessment.get("target") or "Unavailable"
+    raw_target = assessment.get("target") or "Unavailable"
+    meta_rows = [
+        [_paragraph("Scan ID", header), _paragraph(str(canonical_scan_id), cell)],
+        [_paragraph("Target Host / URL", header), _paragraph(target, cell)],
+        [_paragraph("Submitted Input", header), _paragraph(raw_target, cell)],
+        [_paragraph("Overall Exposure", header), _paragraph(summary.get("overall_exposure", "Unknown"), cell)],
+    ]
+    story.append(_table(meta_rows, [45 * mm, 125 * mm]))
+
+    # 2. Exposure Summary
+    story.append(Paragraph("2. Exposure Summary", style["heading"]))
+    summary_rows = [
+        [_paragraph("Metric", header), _paragraph("Value", header)],
+        [_paragraph("Overall Exposure Level", cell), _paragraph(summary.get("overall_exposure", "Unknown"), cell)],
+        [_paragraph("Total Findings", cell), _paragraph(str(summary.get("total_findings", 0)), cell)],
+        [_paragraph("High Severity Findings", cell), _paragraph(str(summary.get("high", 0)), cell)],
+        [_paragraph("Medium Severity Findings", cell), _paragraph(str(summary.get("medium", 0)), cell)],
+        [_paragraph("Low Severity Findings", cell), _paragraph(str(summary.get("low", 0)), cell)],
+    ]
+    story.append(_table(summary_rows, [85 * mm, 85 * mm]))
+
+    # 3. DNS & WHOIS Reconnaissance
+    story.append(Paragraph("3. DNS and WHOIS Findings", style["heading"]))
+    dns_addrs = asm.get("dns_addresses") or []
+    dns_rows = [[_paragraph("IP Address", header), _paragraph("Version", header), _paragraph("Reverse DNS", header)]]
+    for item in dns_addrs:
+        dns_rows.append([
+            _paragraph(item.get("address"), cell),
+            _paragraph(item.get("version"), cell),
+            _paragraph(item.get("reverse_dns") or "N/A", cell),
+        ])
+    if len(dns_rows) == 1:
+        dns_rows.append([_paragraph("No DNS addresses resolved", cell), _paragraph("-", cell), _paragraph("-", cell)])
+    story.append(_table(dns_rows, [55 * mm, 30 * mm, 85 * mm]))
+
+    whois = asm.get("whois") or {}
+    if whois:
+        story.append(Spacer(1, 2 * mm))
+        whois_rows = [
+            [_paragraph("WHOIS Field", header), _paragraph("Value", header)],
+            [_paragraph("Registrar", cell), _paragraph(whois.get("registrar") or "N/A", cell)],
+            [_paragraph("Organization", cell), _paragraph(whois.get("organization") or "N/A", cell)],
+            [_paragraph("Country", cell), _paragraph(whois.get("country") or "N/A", cell)],
+            [_paragraph("Name Servers", cell), _paragraph(whois.get("name_servers") or "N/A", cell)],
+            [_paragraph("Created", cell), _paragraph(whois.get("creation_date") or "N/A", cell)],
+            [_paragraph("Expires", cell), _paragraph(whois.get("expiration_date") or "N/A", cell)],
+        ]
+        story.append(_table(whois_rows, [50 * mm, 120 * mm]))
+
+    # 4. Open Ports & Network Exposure
+    story.append(Paragraph("4. Open Ports and Network Exposure", style["heading"]))
+    ports = asm.get("open_ports") or []
+    port_rows = [[
+        _paragraph("Port", header),
+        _paragraph("Protocol", header),
+        _paragraph("State", header),
+        _paragraph("Service", header),
+        _paragraph("Product / Version", header),
+    ]]
+    for p in ports:
+        port_rows.append([
+            _paragraph(p.get("port"), cell),
+            _paragraph(p.get("protocol", "tcp"), cell),
+            _paragraph(p.get("state", "open"), cell),
+            _paragraph(p.get("service", "unknown"), cell),
+            _paragraph(p.get("product_version") or "Not detected", cell),
+        ])
+    if len(port_rows) == 1:
+        port_rows.append([
+            _paragraph("None", cell),
+            _paragraph("-", cell),
+            _paragraph("-", cell),
+            _paragraph("No open ports found or scan unavailable", cell),
+            _paragraph("-", cell),
+        ])
+    story.append(_table(port_rows, [25 * mm, 25 * mm, 25 * mm, 45 * mm, 50 * mm]))
+
+    # 5. Web Security & HTTP Headers
+    story.append(Paragraph("5. Web Security and HTTP Headers", style["heading"]))
+    https_status = "Yes (Supported)" if asm.get("https_supported") else "No (Not detected / HTTP only)"
+    https_rows = [
+        [_paragraph("HTTPS Supported", header), _paragraph(https_status, cell)],
+    ]
+    missing_headers = asm.get("missing_headers") or []
+    if missing_headers:
+        https_rows.append([_paragraph("Missing Security Headers", header), _paragraph(", ".join(missing_headers), cell)])
+    story.append(_table(https_rows, [55 * mm, 115 * mm]))
+
+    header_findings = asm.get("header_findings") or []
+    if header_findings:
+        story.append(Spacer(1, 2 * mm))
+        hf_rows = [[
+            _paragraph("Header", header),
+            _paragraph("Status", header),
+            _paragraph("Severity", header),
+            _paragraph("Observed Value", header),
+            _paragraph("Recommendation", header),
+        ]]
+        for h in header_findings:
+            hf_rows.append([
+                _paragraph(h.get("name"), cell),
+                _paragraph(h.get("status"), cell),
+                _paragraph(h.get("severity"), cell),
+                _paragraph(h.get("value") or "Not supplied", cell),
+                _paragraph(h.get("recommendation") or "-", cell),
+            ])
+        story.append(_table(hf_rows, [38 * mm, 20 * mm, 22 * mm, 45 * mm, 45 * mm]))
+
+    # 6. Attack Surface Observations & Recommendations
+    observations = asm.get("observations") or []
+    if observations:
+        story.append(Paragraph("6. Attack Surface Observations", style["heading"]))
+        obs_rows = [[
+            _paragraph("Finding / Severity", header),
+            _paragraph("Evidence / Description", header),
+            _paragraph("Recommendation & Limitation", header),
+        ]]
+        for obs in observations:
+            obs_rows.append([
+                _paragraph(f"{obs.get('severity', 'Informational')}: {obs.get('title', '')}", cell),
+                _paragraph(f"{obs.get('description', '')}\nEvidence: {obs.get('evidence', 'N/A')}", cell),
+                _paragraph(f"{obs.get('recommendation', '')}\nLimitation: {obs.get('limitation', 'None')}", cell),
+            ])
+        story.append(_table(obs_rows, [45 * mm, 65 * mm, 60 * mm]))
+
+    # Disclaimer
+    story.append(Paragraph("Educational and Authorized-Use Disclaimer", style["heading"]))
+    story.append(
+        Paragraph(
+            "This report documents a limited educational assessment. It must only be used for systems owned "
+            "by the assessor or covered by explicit permission. Results are point-in-time observations, not "
+            "proof that a system is secure. No exploitation, credential attack, brute force, evasion, or "
+            "destructive testing was performed.",
+            style["disclaimer"],
+        )
+    )
+
+    assessed_at_raw = assessment.get("assessed_at")
+    if isinstance(assessed_at_raw, str):
+        try:
+            assessed_at = datetime.fromisoformat(assessed_at_raw)
+        except Exception:
+            assessed_at = datetime.now().astimezone()
+    else:
+        assessed_at = assessed_at_raw or datetime.now().astimezone()
+
+    document = SimpleDocTemplate(
+        str(temporary_path),
+        pagesize=A4,
+        rightMargin=20 * mm,
+        leftMargin=20 * mm,
+        topMargin=24 * mm,
+        bottomMargin=19 * mm,
+        title=f"{PROJECT_NAME} Attack Surface Report {canonical_scan_id}",
+        author=PROJECT_NAME,
+        subject="Authorized educational attack surface assessment",
+    )
+    try:
+        document.build(story, onFirstPage=_draw_page, onLaterPages=_draw_page)
+        os.replace(temporary_path, output_path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
+
+    return {
+        "scan_id": canonical_scan_id,
         "filename": output_path.name,
         "path": str(output_path),
         "generated_at": assessed_at.isoformat(),

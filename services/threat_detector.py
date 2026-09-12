@@ -17,7 +17,18 @@ from typing import Any, Dict, List
 # ---------------------------------------------------------------------------
 # Helper utilities
 # ---------------------------------------------------------------------------
-
+# ---------------------------------------------------------------------------
+# Configuration constants (can be overridden via env or config file later)
+# ---------------------------------------------------------------------------
+DEFAULT_DETECTION_SETTINGS = {
+    "syn_without_ack_threshold": 20,
+    "syn_ack_ratio": 3,
+    "distinct_port_threshold": 15,
+    "total_packets_threshold": 5000,
+    "rst_threshold": 30,
+    "dns_queries_threshold": 100,
+    "dns_bruteforce_total_packets": 2000,
+}
 def _make_finding(
     finding_id: str,
     threat_type: str,
@@ -29,23 +40,17 @@ def _make_finding(
     recommendation: str,
     confidence: str,
 ) -> Dict[str, Any]:
-    """Create a finding dictionary matching the specification.
+    """Create a finding dictionary with required fields.
 
-    The keys correspond to the fields listed in the markdown file:
-    ``finding_id``, ``threat_type``, ``risk_level``, ``source``,
-    ``destination``, ``detection_reason``, ``evidence_summary``,
-    ``recommendation`` and ``confidence``.
+    Returns keys: title, severity, description, evidence, recommendation, limitation.
     """
     return {
-        "id": finding_id,
-        "threat_type": threat_type,
-        "risk_level": risk_level,
-        "source": source,
-        "destination": destination,
-        "detection_reason": detection_reason,
-        "evidence_summary": evidence_summary,
+        "title": threat_type,
+        "severity": risk_level,
+        "description": detection_reason,
+        "evidence": evidence_summary,
         "recommendation": recommendation,
-        "confidence": confidence,
+        "limitation": confidence,
     }
 
 
@@ -74,13 +79,14 @@ def detect_threats(assessment: Dict[str, Any]) -> Dict[str, Any]:
         "medium": 0,
         "high": 0,
         "overall_risk": "Low",
+        "risk_score": 0,
     }
 
     # Helper to register a finding and update the summary counters.
     def _add(finding: Dict[str, Any]) -> None:
         findings.append(finding)
         summary["total_findings"] += 1
-        level = finding["risk_level"].lower()
+        level = finding["severity"].lower()
         if level in ("low", "medium", "high"):
             summary[level] += 1
         # Re‑evaluate overall risk – the highest severity present wins.
@@ -90,6 +96,9 @@ def detect_threats(assessment: Dict[str, Any]) -> Dict[str, Any]:
             summary["overall_risk"] = "Medium"
         elif summary["overall_risk"] not in ("High", "Medium"):
             summary["overall_risk"] = "Low"
+        # Update risk score: high=3, medium=2, low=1
+        score_map = {"high": 3, "medium": 2, "low": 1}
+        summary["risk_score"] += score_map.get(level, 0)
 
     # -------------------------------------------------------------------
     # 1. Possible Port Scanning (SYN‑without‑ACK pattern)
@@ -206,6 +215,6 @@ def detect_threats(assessment: Dict[str, Any]) -> Dict[str, Any]:
 
     # Ensure the summary always contains the required keys even when no findings.
     if not findings:
-        summary.update({"total_findings": 0, "low": 0, "medium": 0, "high": 0, "overall_risk": "Low"})
+        summary.update({"total_findings": 0, "low": 0, "medium": 0, "high": 0, "overall_risk": "Low", "risk_score": 0})
 
-    return {"findings": findings, "summary": summary}
+    return {"findings": findings, "threat_summary": summary}
