@@ -29,8 +29,11 @@ from services.report_generator import (
     generate_assessment_report,
     generate_dpi_report,
     report_path_for_scan_id,
+    generate_correlation_report,
+    correlation_report_path_for_scan_id,
 )
 from services.traffic_analyzer import DPIResultStore, MAX_DPI_RESULTS, analyze_traffic
+from services.risk_correlation_engine import RiskCorrelationEngine
 
 
 BASE_DIRECTORY = Path(__file__).resolve().parent
@@ -49,6 +52,10 @@ def create_app(test_config: dict | None = None) -> Flask:
     app.extensions["dpi_results"] = DPIResultStore(app.config["MAX_DPI_RESULTS"])
     # Live capture manager singleton
     app.extensions["live_capture_manager"] = LiveCaptureManager()
+    # Attack surface results store
+    app.extensions.setdefault("asm_results", {})
+    # Correlation results store
+    app.extensions["correlation_results"] = {}
 
     @app.after_request
     def add_security_headers(response):
@@ -499,6 +506,127 @@ def create_app(test_config: dict | None = None) -> Flask:
             report_path.name,
             as_attachment=True,
             download_name=f"Cybersential_ASM_Report_{scan_id}.pdf",
+            max_age=0,
+        )
+
+    @app.get("/risk-correlation")
+    def risk_correlation_form():
+        """Render the form to initiate a Cyber Risk Correlation.
+        Lists available Attack Surface results and optional DPI captures.
+        """
+        asm_store = current_app.extensions.get("asm_results", {})
+        dpi_store = current_app.extensions.get("dpi_results")
+
+        asm_assessments = []
+        for sid, a in asm_store.items():
+            asm_assessments.append({
+                "scan_id": sid,
+                "target": a.get("normalized_target") or a.get("target") or "Unknown target",
+                "assessed_at": a.get("assessed_at") or "Unknown time",
+            })
+
+        dpi_assessments = []
+        if dpi_store:
+            for cid in dpi_store.ids():
+                d = dpi_store.get(cid)
+                if d:
+                    dpi_assessments.append({
+                        "capture_id": cid,
+                        "interface": d.get("selected_interface") or "Interface",
+                        "captured_at": d.get("started_at") or d.get("completed_at") or "Unknown time",
+                        "total_packets": d.get("summary", {}).get("total_packets", 0),
+                    })
+
+        return render_template(
+            "risk_correlation.html",
+            asm_assessments=asm_assessments,
+            dpi_assessments=dpi_assessments,
+        )
+
+    @app.post("/risk-correlation/analyze")
+    def risk_correlation_analyze():
+        """Execute risk correlation across selected ASM and optional DPI results."""
+        authorized = request.form.get("authorized") in ("yes", "on", "true")
+        if not authorized:
+            abort(403, description="Authorization not confirmed for risk correlation.")
+
+        asm_scan_id = request.form.get("asm_scan_id", "").strip()
+        if not asm_scan_id:
+            abort(400, description="An Attack Surface assessment must be selected.")
+
+        asm_store = current_app.extensions.get("asm_results", {})
+        asm_data = asm_store.get(asm_scan_id)
+        if not asm_data:
+            abort(404, description="Selected Attack Surface assessment not found.")
+
+        dpi_capture_id = request.form.get("dpi_capture_id", "").strip()
+        dpi_data = None
+        if dpi_capture_id and dpi_capture_id.lower() not in ("none", ""):
+            dpi_store = current_app.extensions.get("dpi_results")
+            if dpi_store:
+                dpi_data = dpi_store.get(dpi_capture_id)
+
+        engine = RiskCorrelationEngine(asm_data=asm_data, dpi_data=dpi_data)
+        summary = engine.summary()
+
+        scan_id = str(uuid.uuid4())
+        assessed_at = datetime.now().astimezone()
+        summary["scan_id"] = scan_id
+        summary["assessed_at"] = assessed_at.isoformat()
+        summary["asm_scan_id"] = asm_scan_id
+        summary["dpi_capture_id"] = dpi_capture_id if dpi_data else None
+
+        report_available = False
+        try:
+            generate_correlation_report(
+                correlation=summary,
+                reports_directory=app.config["REPORTS_DIRECTORY"],
+                scan_id=scan_id,
+                authorization_confirmed=True,
+            )
+            report_available = True
+        except Exception:
+            app.logger.exception("The Risk Correlation PDF report could not be generated.")
+            summary["report_error"] = "Correlation completed, but the PDF report could not be generated."
+
+        summary["report_available"] = report_available
+
+        correlation_store = current_app.extensions.setdefault("correlation_results", {})
+        correlation_store[scan_id] = summary
+
+        return redirect(url_for("risk_correlation_result", scan_id=scan_id), code=303)
+
+    @app.get("/risk-correlation/result/<scan_id>")
+    def risk_correlation_result(scan_id: str):
+        """Display the Cyber Risk Correlation results for a given scan ID."""
+        correlation_store = current_app.extensions.get("correlation_results", {})
+        correlation = correlation_store.get(scan_id)
+        if not correlation:
+            abort(404)
+        return render_template(
+            "risk_correlation_result.html",
+            correlation=correlation,
+            scan_id=scan_id,
+        )
+
+    @app.get("/risk-correlation/reports/<scan_id>/download")
+    def download_correlation_report(scan_id: str):
+        """Securely serve generated Cyber Risk Correlation PDF reports by scan ID."""
+        correlation_store = current_app.extensions.get("correlation_results", {})
+        correlation = correlation_store.get(scan_id)
+        if correlation is None or not correlation.get("report_available"):
+            abort(404)
+        try:
+            report_path = correlation_report_path_for_scan_id(scan_id, app.config["REPORTS_DIRECTORY"])
+        except ValueError:
+            abort(404)
+        if not report_path.is_file():
+            abort(404)
+        return send_from_directory(
+            report_path.parent,
+            report_path.name,
+            as_attachment=True,
+            download_name=f"Cybersential_Risk_Correlation_{scan_id}.pdf",
             max_age=0,
         )
 

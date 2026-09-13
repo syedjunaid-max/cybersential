@@ -29,6 +29,7 @@ PROJECT_NAME = "Cybersential"
 REPORT_PREFIX = "cybersential_"
 DPI_REPORT_PREFIX = "cybersential_dpi_"
 ASM_REPORT_PREFIX = "cybersential_asm_"
+CORRELATION_REPORT_PREFIX = "cybersential_correlation_"
 NAVY = colors.HexColor("#0F172A")
 SLATE = colors.HexColor("#334155")
 LIGHT_SLATE = colors.HexColor("#E2E8F0")
@@ -124,6 +125,13 @@ def asm_report_path_for_scan_id(
 ) -> Path:
     directory = Path(reports_directory).resolve()
     return directory / f"{ASM_REPORT_PREFIX}{_canonical_scan_id(scan_id)}.pdf"
+
+
+def correlation_report_path_for_scan_id(
+    scan_id: str | uuid.UUID, reports_directory: str | Path
+) -> Path:
+    directory = Path(reports_directory).resolve()
+    return directory / f"{CORRELATION_REPORT_PREFIX}{_canonical_scan_id(scan_id)}.pdf"
 
 
 def _build_styles() -> dict[str, ParagraphStyle]:
@@ -676,6 +684,174 @@ def generate_asm_report(
         title=f"{PROJECT_NAME} Attack Surface Report {canonical_scan_id}",
         author=PROJECT_NAME,
         subject="Authorized educational attack surface assessment",
+    )
+    try:
+        document.build(story, onFirstPage=_draw_page, onLaterPages=_draw_page)
+        os.replace(temporary_path, output_path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
+
+    return {
+        "scan_id": canonical_scan_id,
+        "filename": output_path.name,
+        "path": str(output_path),
+        "generated_at": assessed_at.isoformat(),
+    }
+
+
+def generate_correlation_report(
+    correlation: dict[str, Any],
+    reports_directory: str | Path,
+    scan_id: str | uuid.UUID,
+    authorization_confirmed: bool = True,
+) -> dict[str, Any]:
+    """Generate an authorized Cyber Risk Correlation PDF report."""
+    if not authorization_confirmed:
+        raise ValueError("A Cyber Risk Correlation report can only be generated for an authorized assessment.")
+
+    canonical_scan_id = _canonical_scan_id(scan_id)
+    output_path = correlation_report_path_for_scan_id(canonical_scan_id, reports_directory)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = output_path.with_suffix(".tmp")
+
+    style = _build_styles()
+    body, cell, header = style["body"], style["cell"], style["header"]
+
+    target = correlation.get("target", "Target System")
+    score = correlation.get("overall_score", 0)
+    level = correlation.get("risk_level", "Low")
+    counts = correlation.get("finding_counts", {})
+    findings = correlation.get("correlated_findings", [])
+    attack_paths = correlation.get("attack_paths", [])
+    executive_summary = correlation.get("executive_summary", "")
+    priority_recs = correlation.get("priority_recommendations", [])
+    limitations = correlation.get("limitations", [])
+
+    story: list[Any] = [
+        Spacer(1, 5 * mm),
+        Paragraph("Cyber Risk Correlation Report", style["title"]),
+        Paragraph("Multi-module risk scoring, attack path synthesis, and remediation guidance.", body),
+        Spacer(1, 5 * mm),
+    ]
+
+    # 1. Target & Assessment Metadata
+    story.append(Paragraph("1. Assessment Metadata and Scope", style["heading"]))
+    scope_str = "Attack Surface Mapping"
+    if correlation.get("dpi_included"):
+        scope_str += " + Deep Packet Inspection"
+    meta_rows = [
+        [_paragraph("Correlation Scan ID", header), _paragraph(str(canonical_scan_id), cell)],
+        [_paragraph("Target System", header), _paragraph(str(target), cell)],
+        [_paragraph("Assessment Scope", header), _paragraph(scope_str, cell)],
+        [_paragraph("Overall Risk Score", header), _paragraph(f"{score} / 100", cell)],
+        [_paragraph("Risk Level", header), _paragraph(str(level), cell)],
+    ]
+    story.append(_table(meta_rows, [45 * mm, 125 * mm]))
+
+    # 2. Executive Summary
+    story.append(Paragraph("2. Executive Summary", style["heading"]))
+    story.append(Paragraph(escape(_plain_text(executive_summary)), body))
+    story.append(Spacer(1, 3 * mm))
+
+    # 3. Risk Metric & Finding Counts
+    story.append(Paragraph("3. Risk Metrics and Finding Counts", style["heading"]))
+    metric_rows = [
+        [_paragraph("Severity Metric", header), _paragraph("Finding Count", header)],
+        [_paragraph("Critical Severity Findings", cell), _paragraph(str(counts.get("critical", 0)), cell)],
+        [_paragraph("High Severity Findings", cell), _paragraph(str(counts.get("high", 0)), cell)],
+        [_paragraph("Medium Severity Findings", cell), _paragraph(str(counts.get("medium", 0)), cell)],
+        [_paragraph("Low Severity Findings", cell), _paragraph(str(counts.get("low", 0)), cell)],
+        [_paragraph("Total Correlated Observations", cell), _paragraph(str(counts.get("total", 0)), cell)],
+    ]
+    story.append(_table(metric_rows, [85 * mm, 85 * mm]))
+
+    # 4. Correlated Findings
+    story.append(Paragraph("4. Correlated Findings", style["heading"]))
+    if findings:
+        f_rows = [[
+            _paragraph("Finding Title", header),
+            _paragraph("Risk Level", header),
+            _paragraph("Evidence", header),
+            _paragraph("Rationale / Action", header),
+        ]]
+        for f in findings:
+            f_rows.append([
+                _paragraph(f.get("title", ""), cell),
+                _paragraph(f.get("risk_level", "Low"), cell),
+                _paragraph(f.get("evidence", ""), cell),
+                _paragraph(f"{f.get('rationale', '')}\n\nRec: {f.get('recommendation', '')}", cell),
+            ])
+        story.append(_table(f_rows, [45 * mm, 25 * mm, 50 * mm, 50 * mm]))
+    else:
+        story.append(Paragraph("No correlated risks were identified during this assessment.", body))
+
+    # 5. Potential Attack Paths
+    story.append(Paragraph("5. Potential Attack Paths", style["heading"]))
+    if attack_paths:
+        p_rows = [[
+            _paragraph("Attack Path / Risk", header),
+            _paragraph("Path Trajectory", header),
+            _paragraph("Rationale & Evidence", header),
+            _paragraph("Mitigation", header),
+        ]]
+        for path in attack_paths:
+            steps = path.get("steps", [])
+            steps_display = " -> ".join(steps) if isinstance(steps, list) else str(steps)
+            p_rows.append([
+                _paragraph(f"{path.get('title', '')}\n[{path.get('risk_level', 'Low')}]", cell),
+                _paragraph(steps_display, cell),
+                _paragraph(f"{path.get('why', '')}\n\nEvidence: {path.get('evidence', '')}", cell),
+                _paragraph(path.get("recommendation", ""), cell),
+            ])
+        story.append(_table(p_rows, [40 * mm, 45 * mm, 45 * mm, 40 * mm]))
+    else:
+        story.append(Paragraph("No viable attack paths were derived from current observations.", body))
+
+    # 6. Priority Recommendations
+    story.append(Paragraph("6. Priority Recommendations", style["heading"]))
+    if priority_recs:
+        for idx, rec in enumerate(priority_recs, start=1):
+            story.append(Paragraph(f"<b>{idx}.</b> {escape(_plain_text(rec))}", body))
+            story.append(Spacer(1, 1.5 * mm))
+    else:
+        story.append(Paragraph("No immediate prioritized remediations required.", body))
+
+    # 7. Limitations & Educational Disclaimer
+    story.append(Paragraph("7. Limitations and Educational Disclaimer", style["heading"]))
+    if limitations:
+        for lim in limitations:
+            story.append(Paragraph(f"• {escape(_plain_text(lim))}", style["disclaimer"]))
+            story.append(Spacer(1, 1 * mm))
+    else:
+        story.append(
+            Paragraph(
+                "This report documents a limited educational assessment. It must only be used for systems owned "
+                "by the assessor or covered by explicit permission. Results are point-in-time observations, not "
+                "proof of exploitation or security compromise.",
+                style["disclaimer"],
+            )
+        )
+
+    assessed_at_raw = correlation.get("assessed_at")
+    if isinstance(assessed_at_raw, str):
+        try:
+            assessed_at = datetime.fromisoformat(assessed_at_raw)
+        except Exception:
+            assessed_at = datetime.now().astimezone()
+    else:
+        assessed_at = assessed_at_raw or datetime.now().astimezone()
+
+    document = SimpleDocTemplate(
+        str(temporary_path),
+        pagesize=A4,
+        rightMargin=20 * mm,
+        leftMargin=20 * mm,
+        topMargin=24 * mm,
+        bottomMargin=19 * mm,
+        title=f"{PROJECT_NAME} Cyber Risk Correlation Report {canonical_scan_id}",
+        author=PROJECT_NAME,
+        subject="Authorized educational cyber risk correlation",
     )
     try:
         document.build(story, onFirstPage=_draw_page, onLaterPages=_draw_page)

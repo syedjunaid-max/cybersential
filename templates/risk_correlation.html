@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Cybersential Cyber Risk Correlation Engine - Unified risk scoring and attack path analysis">
+    <title>Cyber Risk Correlation Engine | Cybersential</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+    <header class="site-header">
+        <div class="container header-inner">
+            <a class="brand" href="{{ url_for('home') }}">Cybersential</a>
+            <nav class="header-nav" aria-label="Primary navigation">
+                <a href="{{ url_for('home') }}">Assessment tools</a>
+                <a href="{{ url_for('dpi') }}">Deep Packet Inspection</a>
+                <a href="{{ url_for('attack_surface_form') }}">Attack Surface Mapping</a>
+                <a aria-current="page" href="{{ url_for('risk_correlation_form') }}">Risk Correlation</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container page-shell">
+        <section class="hero">
+            <p class="eyebrow">UNIFIED SECURITY INTELLIGENCE</p>
+            <h1>Cyber Risk Correlation Engine</h1>
+            <p>Correlate perimeter findings from Attack Surface Mapping with passive Deep Packet Inspection traffic analysis to synthesize an overall risk score, potential attack paths, and prioritized recommendations.</p>
+        </section>
+
+        <section class="card">
+            <div class="card-heading">
+                <span class="step-number">&Sigma;</span>
+                <div>
+                    <h2>Correlate Security Assessments</h2>
+                    <p>Select a completed Attack Surface assessment and optionally pair it with a captured DPI traffic session.</p>
+                </div>
+            </div>
+
+            {% if not asm_assessments %}
+            <div class="alert alert-warning" role="alert" style="margin-bottom: 1.5rem;">
+                <strong>No Attack Surface assessments found in session.</strong>
+                <p style="margin: 0.5rem 0 0 0;">An Attack Surface assessment is required as the baseline for correlation. Please run an Attack Surface analysis first.</p>
+                <div style="margin-top: 0.75rem;">
+                    <a class="button button-primary" href="{{ url_for('attack_surface_form') }}">Run Attack Surface Assessment</a>
+                </div>
+            </div>
+            {% endif %}
+
+            <form id="correlation-form" action="{{ url_for('risk_correlation_analyze') }}" method="post">
+                <div class="field">
+                    <label for="asm_scan_id"><strong>1. Select Attack Surface Assessment (Required)</strong></label>
+                    {% if asm_assessments %}
+                    <select id="asm_scan_id" name="asm_scan_id" required class="form-select" style="width: 100%; padding: 0.75rem; background: var(--color-surface, #1e293b); color: #fff; border: 1px solid var(--color-border, #334155); border-radius: 6px; font-size: 0.95rem;">
+                        <option value="" disabled selected>-- Choose an Attack Surface Assessment --</option>
+                        {% for asm in asm_assessments %}
+                        <option value="{{ asm.scan_id }}">{{ asm.target }} &mdash; ({{ asm.scan_id[:8] }}...) [{{ asm.assessed_at }}]</option>
+                        {% endfor %}
+                    </select>
+                    {% else %}
+                    <p class="field-help" style="color: var(--color-danger, #ef4444);">No Attack Surface results available in this server session.</p>
+                    {% endif %}
+                    <p class="field-help">Consumes port scan observations, DNS/WHOIS data, and HTTP security header evaluations.</p>
+                </div>
+
+                <div class="field" style="margin-top: 1.5rem;">
+                    <label for="dpi_capture_id"><strong>2. Select DPI Traffic Analysis (Optional)</strong></label>
+                    <select id="dpi_capture_id" name="dpi_capture_id" class="form-select" style="width: 100%; padding: 0.75rem; background: var(--color-surface, #1e293b); color: #fff; border: 1px solid var(--color-border, #334155); border-radius: 6px; font-size: 0.95rem;">
+                        <option value="none" selected>-- None / Skip DPI (ASM-Only Correlation) --</option>
+                        {% for dpi in dpi_assessments %}
+                        <option value="{{ dpi.capture_id }}">{{ dpi.interface }} &mdash; {{ dpi.total_packets }} packets [{{ dpi.captured_at }}]</option>
+                        {% endfor %}
+                    </select>
+                    <p class="field-help">Pairs perimeter findings with observed anomalous packet and protocol activity for high-confidence correlation.</p>
+                </div>
+
+                <label class="authorization" for="authorized" style="margin-top: 1.5rem; display: flex; align-items: flex-start; gap: 0.75rem;">
+                    <input id="authorized" name="authorized" type="checkbox" value="yes" required style="margin-top: 0.25rem;">
+                    <span>I confirm that I own or have explicit authorization to correlate and analyze assessment data for these targets and network environments.</span>
+                </label>
+
+                <div style="margin-top: 1.5rem;">
+                    <button id="correlate-button" class="button button-primary" type="submit" {% if not asm_assessments %}disabled{% endif %}>
+                        Run Risk Correlation Engine
+                    </button>
+                </div>
+            </form>
+        </section>
+
+        <section class="card feature-callout" style="margin-top: 2rem;">
+            <div class="card-heading">
+                <span class="step-number">&rarr;</span>
+                <div>
+                    <h2>How Risk Correlation Works</h2>
+                    <p>Transparent multi-module security correlation engine rules:</p>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-top: 1rem;">
+                <div style="background: rgba(255, 255, 255, 0.03); padding: 1rem; border-radius: 6px; border-left: 3px solid #38bdf8;">
+                    <strong style="color: #38bdf8;">Web Exposure Correlation</strong>
+                    <p style="font-size: 0.85rem; color: #cbd5e1; margin-top: 0.5rem;">Aligns open public web ports with missing security headers to calculate elevated surface exposure.</p>
+                </div>
+                <div style="background: rgba(255, 255, 255, 0.03); padding: 1rem; border-radius: 6px; border-left: 3px solid #f87171;">
+                    <strong style="color: #f87171;">Multi-Vector Risk Elevation</strong>
+                    <p style="font-size: 0.85rem; color: #cbd5e1; margin-top: 0.5rem;">Elevates risk to High/Critical when perimeter exposures align with suspicious DPI traffic indicators.</p>
+                </div>
+                <div style="background: rgba(255, 255, 255, 0.03); padding: 1rem; border-radius: 6px; border-left: 3px solid #fbbf24;">
+                    <strong style="color: #fbbf24;">Confidence Weighting</strong>
+                    <p style="font-size: 0.85rem; color: #cbd5e1; margin-top: 0.5rem;">Adjusts correlation confidence higher for corroborated clusters and lower for isolated observations.</p>
+                </div>
+                <div style="background: rgba(255, 255, 255, 0.03); padding: 1rem; border-radius: 6px; border-left: 3px solid #4ade80;">
+                    <strong style="color: #4ade80;">Attack Path Generation</strong>
+                    <p style="font-size: 0.85rem; color: #cbd5e1; margin-top: 0.5rem;">Synthesizes plausible attacker pathways from external exposure to potential compromise surface.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="scope-note" style="margin-top: 2rem;">
+            <h2>Methodological Scope and Educational Boundaries</h2>
+            <p>The Cyber Risk Correlation Engine operates strictly on observational findings generated by authorized local scans. It performs no active exploitation, fuzzing, or payload decryption. Results represent potential attack vectors and point-in-time risk correlations requiring investigation.</p>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="container">Cybersential &middot; Cyber Risk Correlation &middot; Educational and authorized use only</div>
+    </footer>
+</body>
+</html>

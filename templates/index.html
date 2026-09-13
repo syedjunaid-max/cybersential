@@ -16,6 +16,7 @@
                 <a aria-current="page" href="{{ url_for('home') }}">Assessment tools</a>
                 <a href="{{ url_for('dpi') }}">Deep Packet Inspection</a>
                 <a href="{{ url_for('attack_surface_form') }}">Attack Surface Mapping</a>
+                <a href="{{ url_for('risk_correlation_form') }}">Risk Correlation</a>
             </nav>
         </div>
     </header>
@@ -121,6 +122,20 @@
             <div>
                 <p class="status-text">No PCAP files, raw payloads, credentials, cookies, tokens, or decrypted content are collected.</p>
                 <a class="button button-secondary" href="{{ url_for('dpi') }}">Open traffic analyzer</a>
+            </div>
+        </section>
+
+        <section class="card feature-callout" aria-labelledby="correlation-feature-heading" style="margin-top: 1.5rem;">
+            <div class="card-heading">
+                <span class="step-number">&Sigma;</span>
+                <div>
+                    <h2 id="correlation-feature-heading">Cyber Risk Correlation Engine</h2>
+                    <p>Correlate perimeter findings from Attack Surface Mapping with DPI traffic analysis to generate a unified risk score, potential attack paths, and prioritized recommendations.</p>
+                </div>
+            </div>
+            <div>
+                <p class="status-text">Aggregates host exposures, open ports, missing headers, and packet anomaly signals into actionable intelligence.</p>
+                <a class="button button-primary" href="{{ url_for('risk_correlation_form') }}">Open Risk Correlation</a>
             </div>
         </section>
 

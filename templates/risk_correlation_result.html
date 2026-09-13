@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Cybersential Cyber Risk Correlation Results">
+    <title>Cyber Risk Correlation Results | Cybersential</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .score-display-card {
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.9));
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 2rem;
+        }
+        .score-metric {
+            display: flex;
+            align-items: baseline;
+            gap: 0.5rem;
+        }
+        .score-number {
+            font-size: 4rem;
+            font-weight: 800;
+            line-height: 1;
+        }
+        .score-max {
+            font-size: 1.5rem;
+            color: #94a3b8;
+        }
+        .counts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 1rem;
+            width: 100%;
+            margin-top: 1.5rem;
+        }
+        .count-card {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+        }
+        .count-num {
+            font-size: 2rem;
+            font-weight: 700;
+            display: block;
+        }
+        .count-label {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #94a3b8;
+        }
+        .badge-critical { background: #dc2626; color: #fff; padding: 0.25rem 0.75rem; border-radius: 9999px; font-weight: 600; font-size: 0.85rem; }
+        .badge-high { background: #ea580c; color: #fff; padding: 0.25rem 0.75rem; border-radius: 9999px; font-weight: 600; font-size: 0.85rem; }
+        .badge-medium { background: #d97706; color: #fff; padding: 0.25rem 0.75rem; border-radius: 9999px; font-weight: 600; font-size: 0.85rem; }
+        .badge-low { background: #2563eb; color: #fff; padding: 0.25rem 0.75rem; border-radius: 9999px; font-weight: 600; font-size: 0.85rem; }
+        
+        .attack-path-card {
+            background: rgba(15, 23, 42, 0.75);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.25rem;
+        }
+        .attack-path-steps {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.5rem;
+            margin: 1rem 0;
+        }
+        .attack-path-step {
+            background: rgba(56, 189, 248, 0.12);
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            border-radius: 6px;
+            padding: 0.4rem 0.8rem;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+        .step-arrow {
+            color: #64748b;
+            font-size: 1.1rem;
+        }
+        .finding-item {
+            background: rgba(255, 255, 255, 0.03);
+            border-left: 4px solid #38bdf8;
+            border-radius: 0 8px 8px 0;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+        }
+        .finding-item.finding-critical { border-left-color: #dc2626; }
+        .finding-item.finding-high { border-left-color: #ea580c; }
+        .finding-item.finding-medium { border-left-color: #d97706; }
+        .finding-item.finding-low { border-left-color: #2563eb; }
+    </style>
+</head>
+<body>
+    <header class="site-header">
+        <div class="container header-inner">
+            <a class="brand" href="{{ url_for('home') }}">Cybersential</a>
+            <nav class="header-nav" aria-label="Primary navigation">
+                <a href="{{ url_for('home') }}">Assessment tools</a>
+                <a href="{{ url_for('dpi') }}">Deep Packet Inspection</a>
+                <a href="{{ url_for('attack_surface_form') }}">Attack Surface Mapping</a>
+                <a aria-current="page" href="{{ url_for('risk_correlation_form') }}">Risk Correlation</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container page-shell results-page">
+        <section class="results-hero">
+            <div>
+                <p class="eyebrow">CYBER RISK CORRELATION RESULTS</p>
+                <h1>{{ correlation.get('target', 'Assessed Target') }}</h1>
+                {% if scan_id %}<p>Correlation ID <span class="monospace">{{ scan_id }}</span></p>{% endif %}
+            </div>
+            {% if correlation.get('report_available') and scan_id %}
+            <a class="button button-primary" href="{{ url_for('download_correlation_report', scan_id=scan_id) }}">Download PDF Report</a>
+            {% endif %}
+        </section>
+
+        {% if correlation.get('report_error') %}
+        <div class="alert alert-error" role="alert">{{ correlation.get('report_error') }}</div>
+        {% endif %}
+
+        <!-- Overall Score & Risk Level Banner -->
+        <section class="score-display-card">
+            <div>
+                <span class="count-label">OVERALL RISK SCORE</span>
+                <div class="score-metric">
+                    {% set score = correlation.get('overall_score', 0) %}
+                    <span class="score-number" style="color: {% if score >= 75 %}#ef4444{% elif score >= 50 %}#f97316{% elif score >= 25 %}#f59e0b{% else %}#38bdf8{% endif %};">
+                        {{ score }}
+                    </span>
+                    <span class="score-max">/ 100</span>
+                </div>
+                <div style="margin-top: 0.75rem;">
+                    {% set level = correlation.get('risk_level', 'Low') %}
+                    <span class="badge-{{ level|lower }}">Risk Level: {{ level }}</span>
+                </div>
+            </div>
+
+            {% set counts = correlation.get('finding_counts', {}) %}
+            <div style="flex: 1; min-width: 280px;">
+                <div class="counts-grid">
+                    <div class="count-card">
+                        <span class="count-num" style="color: #ef4444;">{{ counts.get('critical', 0) }}</span>
+                        <span class="count-label">Critical</span>
+                    </div>
+                    <div class="count-card">
+                        <span class="count-num" style="color: #f97316;">{{ counts.get('high', 0) }}</span>
+                        <span class="count-label">High</span>
+                    </div>
+                    <div class="count-card">
+                        <span class="count-num" style="color: #f59e0b;">{{ counts.get('medium', 0) }}</span>
+                        <span class="count-label">Medium</span>
+                    </div>
+                    <div class="count-card">
+                        <span class="count-num" style="color: #38bdf8;">{{ counts.get('low', 0) }}</span>
+                        <span class="count-label">Low</span>
+                    </div>
+                    <div class="count-card">
+                        <span class="count-num" style="color: #e2e8f0;">{{ counts.get('total', 0) }}</span>
+                        <span class="count-label">Total</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Executive Summary -->
+        <section class="card" style="margin-bottom: 2rem;">
+            <h2>Executive Summary</h2>
+            <p style="font-size: 1.05rem; line-height: 1.6; color: #e2e8f0; margin-top: 0.75rem;">
+                {{ correlation.get('executive_summary') }}
+            </p>
+            <div style="margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">
+                    Assessment correlation
+                </span>
+                <span class="badge" style="background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3);">
+                    Requires investigation
+                </span>
+                <span class="badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3);">
+                    Scope: {% if correlation.get('dpi_included') %}ASM + DPI{% else %}ASM Baseline{% endif %}
+                </span>
+            </div>
+        </section>
+
+        <!-- Correlated Findings -->
+        <section style="margin-bottom: 2rem;">
+            <h2>Correlated Findings</h2>
+            <p class="field-help" style="margin-bottom: 1rem;">Correlations derived from cross-referencing Attack Surface discoveries with traffic and detection rules.</p>
+            
+            {% for finding in correlation.get('correlated_findings', []) %}
+            <div class="finding-item finding-{{ finding.get('risk_level', 'low')|lower }}">
+                <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.5rem;">
+                    <h3 style="margin: 0; font-size: 1.15rem;">{{ finding.get('title') }}</h3>
+                    <span class="badge-{{ finding.get('risk_level', 'low')|lower }}">{{ finding.get('risk_level') }}</span>
+                </div>
+                <div style="margin: 0.75rem 0; font-size: 0.9rem; color: #94a3b8;">
+                    <strong>Evidence:</strong> <span class="monospace" style="color: #cbd5e1;">{{ finding.get('evidence') }}</span>
+                </div>
+                <p style="margin: 0.5rem 0; color: #e2e8f0;">
+                    <strong>Rationale:</strong> {{ finding.get('rationale') }}
+                </p>
+                <p style="margin: 0.5rem 0; color: #4ade80;">
+                    <strong>Recommended Action:</strong> {{ finding.get('recommendation') }}
+                </p>
+                <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #94a3b8;">
+                    <em>Status: {{ finding.get('status_label', 'Requires investigation') }} &bull; Category: {{ finding.get('category', 'Assessment correlation') }}</em>
+                </div>
+            </div>
+            {% else %}
+            <p>No correlated findings identified across the selected assessments.</p>
+            {% endfor %}
+        </section>
+
+        <!-- Potential Attack Paths -->
+        <section style="margin-bottom: 2rem;">
+            <h2>Potential Attack Paths</h2>
+            <p class="field-help" style="margin-bottom: 1rem;">Synthesized step-by-step traversal pathways illustrating how discovered exposures could be traversed by an external entity.</p>
+
+            {% for path in correlation.get('attack_paths', []) %}
+            <div class="attack-path-card">
+                <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.5rem;">
+                    <h3 style="margin: 0; color: #f8fafc;">{{ path.get('title') }}</h3>
+                    <span class="badge-{{ path.get('risk_level', 'low')|lower }}">{{ path.get('risk_level') }} Risk</span>
+                </div>
+
+                <div class="attack-path-steps">
+                    {% for step in path.get('steps', []) %}
+                    <span class="attack-path-step">{{ step }}</span>
+                    {% if not loop.last %}<span class="step-arrow">&rarr;</span>{% endif %}
+                    {% endfor %}
+                </div>
+
+                <div style="font-size: 0.9rem; margin-bottom: 0.5rem; color: #cbd5e1;">
+                    <strong>Why Correlated:</strong> {{ path.get('why') }}
+                </div>
+                <div style="font-size: 0.9rem; margin-bottom: 0.5rem; color: #94a3b8;">
+                    <strong>Supporting Evidence:</strong> {{ path.get('evidence') }}
+                </div>
+                <div style="font-size: 0.9rem; color: #4ade80;">
+                    <strong>Recommended Action:</strong> {{ path.get('recommendation') }}
+                </div>
+            </div>
+            {% else %}
+            <p>No attack paths were generated from current observations.</p>
+            {% endfor %}
+        </section>
+
+        <!-- Priority Recommendations -->
+        <section class="card" style="margin-bottom: 2rem;">
+            <h2>Priority Recommendations</h2>
+            <ol style="margin-top: 1rem; padding-left: 1.5rem; color: #f1f5f9; line-height: 1.8;">
+                {% for rec in correlation.get('priority_recommendations', []) %}
+                <li style="margin-bottom: 0.5rem;">{{ rec }}</li>
+                {% endfor %}
+            </ol>
+        </section>
+
+        <!-- Limitations & Educational Scope -->
+        <section class="card" style="margin-bottom: 2rem; background: rgba(30, 41, 59, 0.5); border-left: 4px solid #fbbf24;">
+            <h2 style="color: #fbbf24;">Methodological Limitations and Assessment Notice</h2>
+            <ul style="margin-top: 0.75rem; padding-left: 1.25rem; color: #cbd5e1; font-size: 0.9rem; line-height: 1.6;">
+                {% for limitation in correlation.get('limitations', []) %}
+                <li style="margin-bottom: 0.4rem;">{{ limitation }}</li>
+                {% endfor %}
+            </ul>
+        </section>
+
+        <!-- PDF Download & Action Bar -->
+        <section class="report-panel">
+            <div>
+                <h2>Download Official Correlation Report</h2>
+                <p>Generate a professional A4 PDF summary detailing risk metrics, finding counts, attack paths, and priority recommendations.</p>
+            </div>
+            {% if correlation.get('report_available') and scan_id %}
+            <a class="button button-primary" href="{{ url_for('download_correlation_report', scan_id=scan_id) }}">Download PDF Report</a>
+            {% endif %}
+        </section>
+
+        <div style="margin-top: 1.5rem;">
+            <a class="back-link" href="{{ url_for('risk_correlation_form') }}">&larr; Run another risk correlation analysis</a>
+        </div>
+    </main>
+
+    <footer class="site-footer">
+        <div class="container">Cybersential &middot; Cyber Risk Correlation &middot; Educational and authorized use only</div>
+    </footer>
+</body>
+</html>
