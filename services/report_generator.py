@@ -431,7 +431,7 @@ def generate_assessment_report(
 
     # Build the PDF story using existing styling helpers
     style = _build_styles()
-    body = style["body"]
+    body, cell, header = style["body"], style["cell"], style["header"]
     story: list[Any] = [
         Spacer(1, 5 * mm),
         Paragraph("Assessment Report", style["title"]),
@@ -443,13 +443,115 @@ def generate_assessment_report(
     # Optional detailed sections (included only if data is provided)
     if reconnaissance:
         story.append(Paragraph("Reconnaissance Findings", style["heading"]))
-        story.append(_paragraph(str(reconnaissance), body))
+        recon_target = reconnaissance.get("target") or target
+        recon_meta = [
+            [_paragraph("Target", header), _paragraph(recon_target, cell)],
+            [_paragraph("Status", header), _paragraph("Successful" if reconnaissance.get("success", True) else "Failed / Warning", cell)],
+        ]
+        story.append(_table(recon_meta, [45 * mm, 125 * mm]))
+
+        for err in reconnaissance.get("errors") or []:
+            story.append(_paragraph(f"Warning: {err}", body))
+
+        dns_rows = [[_paragraph("IP Address", header), _paragraph("Version", header), _paragraph("Reverse DNS", header)]]
+        for item in reconnaissance.get("addresses") or []:
+            dns_rows.append([
+                _paragraph(item.get("address") or "Unavailable", cell),
+                _paragraph(item.get("version") or "Unavailable", cell),
+                _paragraph(item.get("reverse_dns") or "N/A", cell),
+            ])
+        if len(dns_rows) == 1:
+            dns_rows.append([_paragraph("No IP addresses resolved", cell), _paragraph("-", cell), _paragraph("-", cell)])
+        story.append(Spacer(1, 2 * mm))
+        story.append(_table(dns_rows, [55 * mm, 30 * mm, 85 * mm]))
+
+        whois = reconnaissance.get("whois") or {}
+        if whois:
+            story.append(Spacer(1, 2 * mm))
+            if whois.get("message"):
+                story.append(_paragraph(whois.get("message"), body))
+            whois_rows = [
+                [_paragraph("Registrar", header), _paragraph(whois.get("registrar") or "Unavailable", cell)],
+                [_paragraph("Creation Date", header), _paragraph(whois.get("creation_date") or "Unavailable", cell)],
+                [_paragraph("Expiration Date", header), _paragraph(whois.get("expiration_date") or "Unavailable", cell)],
+                [_paragraph("Organization", header), _paragraph(whois.get("organization") or "Unavailable", cell)],
+                [_paragraph("Country", header), _paragraph(whois.get("country") or "Unavailable", cell)],
+                [_paragraph("Name Servers", header), _paragraph(whois.get("name_servers") or "Unavailable", cell)],
+                [_paragraph("Status", header), _paragraph(whois.get("status") or "Unavailable", cell)],
+            ]
+            story.append(_table(whois_rows, [50 * mm, 120 * mm]))
+
     if port_scan:
         story.append(Paragraph("Port Scan Results", style["heading"]))
-        story.append(_paragraph(str(port_scan), body))
+        ps_target = port_scan.get("target") or scan_host
+        host_state = port_scan.get("host_state") or ("up" if port_scan.get("success") else "Unknown")
+        scan_msg = port_scan.get("message") or "Completed"
+        ps_meta = [
+            [_paragraph("Target", header), _paragraph(ps_target, cell)],
+            [_paragraph("Host State", header), _paragraph(host_state, cell)],
+            [_paragraph("Scan Message", header), _paragraph(scan_msg, cell)],
+        ]
+        story.append(_table(ps_meta, [45 * mm, 125 * mm]))
+
+        ports = port_scan.get("ports") or []
+        port_rows = [[
+            _paragraph("Port", header),
+            _paragraph("Protocol", header),
+            _paragraph("State", header),
+            _paragraph("Service", header),
+            _paragraph("Product / Version", header),
+        ]]
+        for p in ports:
+            port_rows.append([
+                _paragraph(p.get("port") or "-", cell),
+                _paragraph(p.get("protocol") or "tcp", cell),
+                _paragraph(p.get("state") or "open", cell),
+                _paragraph(p.get("service") or "unknown", cell),
+                _paragraph(p.get("product_version") or "Not detected", cell),
+            ])
+        if len(port_rows) == 1:
+            port_rows.append([
+                _paragraph("None", cell),
+                _paragraph("-", cell),
+                _paragraph("-", cell),
+                _paragraph("No open TCP ports reported in 1-1024 range", cell),
+                _paragraph("-", cell),
+            ])
+        story.append(Spacer(1, 2 * mm))
+        story.append(_table(port_rows, [25 * mm, 25 * mm, 25 * mm, 45 * mm, 50 * mm]))
+
     if header_analysis:
         story.append(Paragraph("Header Analysis", style["heading"]))
-        story.append(_paragraph(str(header_analysis), body))
+        ha_url = header_analysis.get("url") or target
+        ha_status = str(header_analysis.get("status_code", "N/A"))
+        ha_msg = header_analysis.get("message") or "Completed"
+        ha_meta = [
+            [_paragraph("Target URL", header), _paragraph(ha_url, cell)],
+            [_paragraph("Status Code", header), _paragraph(ha_status, cell)],
+            [_paragraph("Message", header), _paragraph(ha_msg, cell)],
+        ]
+        story.append(_table(ha_meta, [45 * mm, 125 * mm]))
+
+        headers = header_analysis.get("headers") or []
+        header_rows = [[
+            _paragraph("Header", header),
+            _paragraph("Scope", header),
+            _paragraph("Status", header),
+            _paragraph("Severity", header),
+            _paragraph("Observed Value", header),
+        ]]
+        for h in headers:
+            header_rows.append([
+                _paragraph(h.get("name") or "-", cell),
+                _paragraph("Required" if h.get("required") else "Optional", cell),
+                _paragraph(h.get("status") or "-", cell),
+                _paragraph(h.get("severity") or "-", cell),
+                _paragraph(h.get("value") or "Not supplied", cell),
+            ])
+        if len(header_rows) == 1:
+            header_rows.append([_paragraph("No headers analyzed", cell), _paragraph("-", cell), _paragraph("-", cell), _paragraph("-", cell), _paragraph("-", cell)])
+        story.append(Spacer(1, 2 * mm))
+        story.append(_table(header_rows, [45 * mm, 20 * mm, 25 * mm, 25 * mm, 55 * mm]))
 
     # Disclaimer – same style as DPI report
     story.append(Paragraph("Educational and Authorized-Use Disclaimer", style["heading"]))

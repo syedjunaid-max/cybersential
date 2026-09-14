@@ -42,36 +42,44 @@
                 <div><h2 id="recon-heading">Reconnaissance</h2><p>Resolved addresses, reverse DNS, and WHOIS data.</p></div>
             </div>
 
-            {% for error in reconnaissance['errors'] %}<div class="alert alert-warning">{{ error }}</div>{% endfor %}
+            <dl class="metadata-grid" style="margin-bottom: 1.25rem;">
+                <div><dt>Target</dt><dd class="monospace">{{ reconnaissance.get('target') or target }}</dd></div>
+                <div><dt>Status</dt><dd><span class="badge {{ 'severity-low' if reconnaissance.get('success', True) else 'severity-medium' }}">{{ 'Successful' if reconnaissance.get('success', True) else 'Partial / Warning' }}</span></dd></div>
+            </dl>
+
+            {% if reconnaissance.get('errors') %}
+                {% for error in reconnaissance['errors'] %}<div class="alert alert-warning">{{ error }}</div>{% endfor %}
+            {% endif %}
 
             <h3>IP resolution</h3>
-            {% if reconnaissance['addresses'] %}
+            {% if reconnaissance.get('addresses') %}
             <div class="table-wrap">
                 <table>
                     <thead><tr><th>Address</th><th>Version</th><th>Reverse DNS</th></tr></thead>
                     <tbody>
                         {% for address in reconnaissance['addresses'] %}
-                        <tr><td class="monospace">{{ address['address'] }}</td><td>{{ address['version'] }}</td><td>{{ address['reverse_dns'] }}</td></tr>
+                        <tr><td class="monospace">{{ address.get('address', '-') }}</td><td>{{ address.get('version', '-') }}</td><td>{{ address.get('reverse_dns', '-') }}</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
             {% else %}<p class="empty-state">No IP addresses were resolved.</p>{% endif %}
 
+            {% set whois = reconnaissance.get('whois') or {} %}
             <div class="subsection-heading">
                 <h3>WHOIS information</h3>
-                <span class="status-text">{{ reconnaissance['whois']['message'] }}</span>
+                <span class="status-text">{{ whois.get('message', '') }}</span>
             </div>
             <div class="table-wrap">
                 <table class="key-value-table">
                     <tbody>
-                        <tr><th>Registrar</th><td>{{ reconnaissance['whois']['registrar'] }}</td></tr>
-                        <tr><th>Creation date</th><td>{{ reconnaissance['whois']['creation_date'] }}</td></tr>
-                        <tr><th>Expiration date</th><td>{{ reconnaissance['whois']['expiration_date'] }}</td></tr>
-                        <tr><th>Organization</th><td>{{ reconnaissance['whois']['organization'] }}</td></tr>
-                        <tr><th>Country</th><td>{{ reconnaissance['whois']['country'] }}</td></tr>
-                        <tr><th>Name servers</th><td>{{ reconnaissance['whois']['name_servers'] }}</td></tr>
-                        <tr><th>Status</th><td>{{ reconnaissance['whois']['status'] }}</td></tr>
+                        <tr><th>Registrar</th><td>{{ whois.get('registrar') or 'Unavailable' }}</td></tr>
+                        <tr><th>Creation date</th><td>{{ whois.get('creation_date') or 'Unavailable' }}</td></tr>
+                        <tr><th>Expiration date</th><td>{{ whois.get('expiration_date') or 'Unavailable' }}</td></tr>
+                        <tr><th>Organization</th><td>{{ whois.get('organization') or 'Unavailable' }}</td></tr>
+                        <tr><th>Country</th><td>{{ whois.get('country') or 'Unavailable' }}</td></tr>
+                        <tr><th>Name servers</th><td>{{ whois.get('name_servers') or 'Unavailable' }}</td></tr>
+                        <tr><th>Status</th><td>{{ whois.get('status') or 'Unavailable' }}</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -80,19 +88,29 @@
         <section class="result-section" aria-labelledby="ports-heading">
             <div class="section-heading">
                 <span class="step-number">02</span>
-                <div><h2 id="ports-heading">TCP port scan</h2><p>{{ port_scan['message'] }}</p></div>
+                <div><h2 id="ports-heading">TCP port scan</h2><p>{{ port_scan.get('message', '') }}</p></div>
             </div>
-            {% if port_scan['setup_required'] %}<div class="alert alert-warning">Install the Nmap executable separately and ensure it is available on PATH.</div>{% endif %}
-            {% if port_scan['ports'] %}
+
+            <dl class="metadata-grid" style="margin-bottom: 1.25rem;">
+                <div><dt>Target</dt><dd class="monospace">{{ port_scan.get('target') or scan_host }}</dd></div>
+                <div><dt>Host state</dt><dd><span class="badge severity-low">{{ port_scan.get('host_state') or 'up' }}</span></dd></div>
+            </dl>
+
+            {% if port_scan.get('message') %}
+            <p class="status-text">{{ port_scan.get('message') }}</p>
+            {% endif %}
+
+            {% if port_scan.get('setup_required') %}<div class="alert alert-warning">Install the Nmap executable separately and ensure it is available on PATH.</div>{% endif %}
+            {% if port_scan.get('ports') %}
             <div class="table-wrap">
                 <table>
                     <thead><tr><th>Port</th><th>Protocol</th><th>State</th><th>Service</th><th>Product / version</th></tr></thead>
                     <tbody>
                         {% for port in port_scan['ports'] %}
                         <tr>
-                            <td class="monospace">{{ port['port'] }}</td><td>{{ port['protocol'] }}</td>
-                            <td><span class="badge severity-low">{{ port['state'] }}</span></td>
-                            <td>{{ port['service'] }}</td><td>{{ port['product_version'] }}</td>
+                            <td class="monospace">{{ port.get('port', '-') }}</td><td>{{ port.get('protocol', 'tcp') }}</td>
+                            <td><span class="badge severity-low">{{ port.get('state', 'open') }}</span></td>
+                            <td>{{ port.get('service', 'unknown') }}</td><td>{{ port.get('product_version', 'Not detected') }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
