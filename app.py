@@ -139,6 +139,29 @@ def create_app(test_config: dict | None = None) -> Flask:
             app.logger.exception("The PDF report could not be generated.")
             report_error = "The assessment completed, but the PDF report could not be generated."
 
+        assessment_data = {
+            "target": web_url,
+            "scan_host": scan_host,
+            "scan_id": scan_id,
+            "assessed_at": assessed_at.isoformat(),
+            "authorization_confirmed": True,
+            "reconnaissance": reconnaissance,
+            "port_scan": port_scan,
+            "header_analysis": header_analysis,
+            "report_available": report_available,
+            "report_error": report_error,
+        }
+        assessment_store = current_app.extensions.setdefault("assessment_results", {})
+        assessment_store[scan_id] = assessment_data
+
+        if request.is_json or (request.headers.get("Accept") and "application/json" in request.headers.get("Accept")):
+            return {
+                "status": "completed",
+                "scan_id": scan_id,
+                "result_url": url_for("assessment_result", scan_id=scan_id),
+                "report_available": report_available,
+            }, 200
+
         return render_template(
             "result.html",
             target=web_url,
@@ -151,6 +174,27 @@ def create_app(test_config: dict | None = None) -> Flask:
             header_analysis=header_analysis,
             report_available=report_available,
             report_error=report_error,
+        )
+
+    @app.get("/assessment/result/<scan_id>")
+    @app.get("/result/<scan_id>")
+    def assessment_result(scan_id: str):
+        assessment_store = current_app.extensions.get("assessment_results", {})
+        assessment = assessment_store.get(scan_id)
+        if not assessment:
+            abort(404)
+        return render_template(
+            "result.html",
+            target=assessment.get("target"),
+            scan_host=assessment.get("scan_host"),
+            scan_id=scan_id,
+            assessed_at=assessment.get("assessed_at"),
+            authorization_confirmed=assessment.get("authorization_confirmed", True),
+            reconnaissance=assessment.get("reconnaissance", {}),
+            port_scan=assessment.get("port_scan", {}),
+            header_analysis=assessment.get("header_analysis", {}),
+            report_available=assessment.get("report_available", False),
+            report_error=assessment.get("report_error"),
         )
 
     @app.post("/password-analysis")
@@ -630,6 +674,8 @@ def create_app(test_config: dict | None = None) -> Flask:
             max_age=0,
         )
 
+    @app.get("/download/<scan_id>")
+    @app.get("/reports/<scan_id>")
     @app.get("/reports/<scan_id>/download")
     def download_report(scan_id: str):
         try:
@@ -644,6 +690,7 @@ def create_app(test_config: dict | None = None) -> Flask:
             as_attachment=True,
             download_name=f"Cybersential_Report_{scan_id}.pdf",
             max_age=0,
+            mimetype="application/pdf",
         )
 
     @app.errorhandler(404)

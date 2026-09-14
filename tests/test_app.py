@@ -137,8 +137,37 @@ class FlaskApplicationTests(unittest.TestCase):
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         response.close()
 
+        # Check aliases
+        res_alias = self.client.get(f"/download/{scan_id}")
+        self.assertEqual(res_alias.status_code, 200)
+        self.assertEqual(res_alias.mimetype, "application/pdf")
+        res_alias.close()
+
         self.assertEqual(self.client.get("/reports/not-a-uuid/download").status_code, 404)
         self.assertEqual(self.client.get(f"/reports/{scan_id[:-1]}9/download").status_code, 404)
+
+    @patch("app.generate_assessment_report")
+    @patch("app.analyze_security_headers", return_value=SAMPLE_HEADERS)
+    @patch("app.scan_tcp_ports", return_value=SAMPLE_PORTS)
+    @patch("app.perform_reconnaissance", return_value=SAMPLE_RECON)
+    def test_assessment_json_and_result_page_flow(self, recon_mock, port_mock, header_mock, report_mock):
+        response = self.client.post(
+            "/scan",
+            data={"target": "http://127.0.0.1:5000/path", "authorized": "yes"},
+            headers={"Accept": "application/json"},
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["status"], "completed")
+        self.assertIn("scan_id", data)
+        self.assertIn("result_url", data)
+
+        result_resp = self.client.get(data["result_url"])
+        self.assertEqual(result_resp.status_code, 200)
+        self.assertIn(b"Assessment complete", result_resp.data)
+        self.assertIn(b"http://127.0.0.1:5000/path", result_resp.data)
+
+        self.assertEqual(self.client.get("/result/non-existent-scan-id").status_code, 404)
 
     def test_dpi_page_exposes_authorized_bounded_capture_controls(self):
         environment = {
