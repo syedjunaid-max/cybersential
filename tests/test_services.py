@@ -536,6 +536,24 @@ class ReportGeneratorTests(unittest.TestCase):
         self.assertIn("http://127.0.0.1:5000/path", rendered_values)
         self.assertIn("127.0.0.1", rendered_values)
 
+    def test_generates_assessment_report_with_assessment_datetime(self):
+        recon, ports, headers = self.sample_results()
+        fixed_dt = datetime(2026, 9, 15, 12, 0, 0, tzinfo=timezone.utc)
+        result = generate_assessment_report(
+            target="http://127.0.0.1:5000/path",
+            scan_host="127.0.0.1",
+            authorization_confirmed=True,
+            reconnaissance=recon,
+            port_scan=ports,
+            header_analysis=headers,
+            reports_directory=self.reports_directory,
+            scan_id=self.scan_id,
+            assessment_datetime=fixed_dt,
+        )
+        self.assertEqual(result["generated_at"], fixed_dt.isoformat())
+        report_path = Path(result["path"])
+        self.assertTrue(report_path.is_file())
+
     def test_refuses_unauthorized_report_and_invalid_download_id(self):
         recon, ports, headers = self.sample_results()
         with self.assertRaises(ValueError):

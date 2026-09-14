@@ -403,6 +403,7 @@ def generate_assessment_report(
     reconnaissance: dict[str, Any] | None = None,
     port_scan: dict[str, Any] | None = None,
     header_analysis: dict[str, Any] | None = None,
+    assessment_datetime: datetime | str | None = None,
 ) -> dict[str, str]:
     """Generate a full assessment PDF report.
 
@@ -463,12 +464,18 @@ def generate_assessment_report(
     )
 
     # Determine assessed_at timestamp for return value
-    assessed_at_raw = assessment.get("assessed_at")
+    assessed_at_raw = (
+        assessment_datetime
+        if assessment_datetime is not None
+        else assessment.get("assessed_at")
+    )
     if isinstance(assessed_at_raw, str):
         try:
             assessed_at = datetime.fromisoformat(assessed_at_raw)
         except Exception:
             assessed_at = datetime.now().astimezone()
+    elif isinstance(assessed_at_raw, datetime):
+        assessed_at = assessed_at_raw
     else:
         assessed_at = assessed_at_raw or datetime.now().astimezone()
 
